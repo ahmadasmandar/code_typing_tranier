@@ -1,88 +1,149 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const codeInput = document.getElementById('codeInput');
-  const startBtn = document.getElementById('startBtn');
-  const restartBtn = document.getElementById('restartBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const codeDisplay = document.getElementById('codeDisplay');
-  const typingTest = document.getElementById('typingTest');
-  const dateElem = document.getElementById('date');
-  const timerElem = document.getElementById('timer');
-  const liveWpmElem = document.getElementById('liveWpm');
-  const progressBar = document.getElementById('progressBar');
-  const summaryModal = document.getElementById('summaryModal');
+/**
+ * Code Typing Trainer - Frontend JavaScript
+ *
+ * Handles all client-side functionality for the Code Typing Trainer application,
+ * including typing test logic, error handling, metrics calculation, and visualization.
+ *
+ * Author: Ahmad Asmandar <ahmad.asmandar@gmx.com>
+ * License: GNU General Public License v3.0 (GPL-3.0)
+ * Version: 1.0.0
+ * Date: 2025-06-22
+ */
 
-  let code = '', index = 0, startTime = null;
-  let startedTyping = false, errorState = false;
-  let errorCount = 0, backspaceCount = 0, timerInterval = null;
-  let chart = null;
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM element references
+  const codeInput = document.getElementById('codeInput');  // Textarea for code input
+  const startBtn = document.getElementById('startBtn');    // Button to start the test
+  const restartBtn = document.getElementById('restartBtn'); // Button to restart with same code
+  const stopBtn = document.getElementById('stopBtn');      // Button to stop the test
+  const codeDisplay = document.getElementById('codeDisplay'); // Container for displaying code to type
+  const typingTest = document.getElementById('typingTest'); // Test container
+  const dateElem = document.getElementById('date');        // Element for displaying current date
+  const timerElem = document.getElementById('timer');      // Element for displaying elapsed time
+  const liveWpmElem = document.getElementById('liveWpm');  // Element for displaying live WPM
+  const progressBar = document.getElementById('progressBar'); // Progress indicator
+  const summaryModal = document.getElementById('summaryModal'); // Results modal
+
+  // State variables
+  let code = '',              // The code to be typed
+      index = 0,             // Current position in the code
+      startTime = null;      // Timestamp when typing started
+  let startedTyping = false, // Whether user has started typing
+      errorState = false;    // Whether user is in error state (wrong character)
+  let errorCount = 0,        // Number of typing errors
+      backspaceCount = 0,    // Number of backspace key presses
+      timerInterval = null;  // Timer interval reference
+  let chart = null;          // Chart.js instance for WPM history
+  
+  // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
+  /**
+   * Plays a short beep sound for error feedback
+   * Uses Web Audio API to generate a 440Hz tone for 100ms
+   */
   function beep() {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const osc = audioCtx.createOscillator();
-    osc.frequency.value = 440;
+    osc.frequency.value = 440;  // A4 note frequency
     osc.connect(audioCtx.destination);
     osc.start();
-    setTimeout(() => osc.stop(), 100);
+    setTimeout(() => osc.stop(), 100);  // 100ms duration
   }
 
+  /**
+   * Start button click handler
+   * Initializes the typing test with the code from the input textarea
+   */
   startBtn.addEventListener('click', function() {
+    // Normalize line endings to \n for cross-platform compatibility
     code = codeInput.value.replace(/\r\n|\r/g, '\n');
-    if (!code) return;
+    if (!code) return;  // Don't start if there's no code
+    
+    // Hide input elements and show test interface
     codeInput.style.display = 'none';
     startBtn.style.display = 'none';
     restartBtn.style.display = 'none';
     stopBtn.classList.remove('hidden');
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
+    
+    // Create spans for each character to enable individual styling
     codeDisplay.innerHTML = '';
     code.split('').forEach(c => {
       const span = document.createElement('span');
-      span.dataset.char = c;
+      span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
-        span.innerHTML = '⏎<br>'; 
+        span.innerHTML = '⏎<br>';  // Show newline character with visual indicator
       } else {
         span.textContent = c;
       }
       codeDisplay.appendChild(span);
     });
-    index = 0; startedTyping = false; errorState = false;
-    errorCount = 0; backspaceCount = 0;
+    
+    // Reset test state
+    index = 0; 
+    startedTyping = false; 
+    errorState = false;
+    errorCount = 0; 
+    backspaceCount = 0;
+    
+    // Reset UI elements
     dateElem.textContent = new Date().toLocaleString();
     timerElem.textContent = '0.0';
     liveWpmElem.textContent = '0.0';
     progressBar.style.width = '0%';
+    
+    // Set initial cursor position and focus
     highlightActive();
     codeDisplay.focus();
   });
 
+  // Stop button click handler
   stopBtn.addEventListener('click', stopTest);
 
+  /**
+   * Restart button click handler
+   * Restarts the typing test with the same code
+   */
   restartBtn.addEventListener('click', function() {
-    if (!code) return;
+    if (!code) return;  // Don't restart if there's no code
+    
+    // Hide input elements and show test interface
     codeInput.style.display = 'none';
     startBtn.style.display = 'none';
     restartBtn.style.display = 'none';
     stopBtn.classList.remove('hidden');
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
+    
+    // Create spans for each character to enable individual styling
     codeDisplay.innerHTML = '';
     code.split('').forEach(c => {
       const span = document.createElement('span');
-      span.dataset.char = c;
+      span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
-        span.innerHTML = '⏎<br>'; 
+        span.innerHTML = '⏎<br>';  // Show newline character with visual indicator
       } else {
         span.textContent = c;
       }
       codeDisplay.appendChild(span);
     });
-    index = 0; startedTyping = false; errorState = false;
-    errorCount = 0; backspaceCount = 0;
+    
+    // Reset test state
+    index = 0; 
+    startedTyping = false; 
+    errorState = false;
+    errorCount = 0; 
+    backspaceCount = 0;
+    
+    // Reset UI elements
     dateElem.textContent = new Date().toLocaleString();
     timerElem.textContent = '0.0';
     liveWpmElem.textContent = '0.0';
     progressBar.style.width = '0%';
+    
+    // Set initial cursor position and focus
     highlightActive();
     codeDisplay.focus();
   });

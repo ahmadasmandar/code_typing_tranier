@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+Code Typing Trainer - Flask Web Application
+
+A web-based typing trainer focused on practicing programming code rather than plain text.
+Provides accurate metrics, error handling, and history tracking for typing practice.
+
+Author: Ahmad Asmandar <ahmad.asmandar@gmx.com>
+License: GNU General Public License v3.0 (GPL-3.0)
+Version: 1.0.0
+Date: 2025-06-22
+"""
+
+# Standard library imports
 import json
 import os
 import secrets
@@ -5,47 +19,93 @@ import threading
 import webbrowser
 from datetime import datetime
 
+# Third-party imports
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 
 class DateTimeEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for datetime objects.
+    
+    Extends the standard JSONEncoder to properly serialize datetime objects
+    by converting them to string format (YYYY-MM-DD HH:MM).
+    """
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.strftime('%Y-%m-%d %H:%M')
         return super().default(obj)
 
 
+# Initialize Flask application
 app = Flask(__name__)
+
+# Generate a secure random secret key for session management
 app.secret_key = secrets.token_hex(16)
-SETTINGS_FILE = 'train_settings.json'
-UPLOAD_FOLDER = os.path.join('static', 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Configuration constants
+SETTINGS_FILE = 'train_settings.json'  # File to store user settings and history
+UPLOAD_FOLDER = os.path.join('static', 'uploads')  # Directory for profile image uploads
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}  # Allowed image file extensions
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 def load_settings():
+    """
+    Load user settings and typing history from the settings file.
+    
+    If the file doesn't exist or contains invalid JSON, returns an empty dictionary.
+    
+    Returns:
+        dict: User settings and typing history
+    """
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                return {}
-    return {}
+                return {}  # Return empty dict if JSON is invalid
+    return {}  # Return empty dict if file doesn't exist
 
 
 def save_settings(settings):
+    """
+    Save user settings and typing history to the settings file.
+    
+    Args:
+        settings (dict): User settings and typing history to save
+    """
     with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=4)
+        json.dump(settings, f, indent=4)  # Save with pretty formatting
 
 
 def allowed_file(filename):
+    """
+    Check if a file has an allowed extension for upload.
+    
+    Args:
+        filename (str): The filename to check
+        
+    Returns:
+        bool: True if the file extension is allowed, False otherwise
+    """
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def format_timestamp(timestamp_str):
-    """Convert various timestamp formats to YYYY-MM-DD HH:MM"""
+    """
+    Convert various timestamp formats to a standardized YYYY-MM-DD HH:MM format.
+    
+    Handles ISO format timestamps, timestamps with microseconds, and other formats.
+    If conversion fails, returns the original timestamp string.
+    
+    Args:
+        timestamp_str (str): The timestamp string to format
+        
+    Returns:
+        str: Formatted timestamp in YYYY-MM-DD HH:MM format
+    """
     try:
         # Handle ISO format with microseconds (e.g., 2025-06-16T12:02:12.899211)
         if 'T' in timestamp_str:
@@ -63,11 +123,21 @@ def format_timestamp(timestamp_str):
             return dt.strftime('%Y-%m-%d %H:%M')
     except Exception as e:
         print(f"Error formatting timestamp '{timestamp_str}': {e}")
-        return timestamp_str
+        return timestamp_str  # Return original if formatting fails
 
 
 @app.route('/')
 def index():
+    """
+    Main route handler for the home page.
+    
+    Loads user typing history from settings, ensures all history entries have
+    properly formatted timestamps, sorts entries by timestamp (newest first),
+    and renders the main page template.
+    
+    Returns:
+        rendered template: The main index.html page with typing history
+    """
     # Add a link to the about page in the context
     has_about_page = True
     settings = load_settings()
@@ -99,6 +169,16 @@ def index():
 
 @app.route('/save', methods=['POST'])
 def save():
+    """
+    API endpoint to save typing test results.
+    
+    Receives typing test results via JSON POST request, creates a new history entry
+    with the current timestamp, and saves it to the settings file. Limits history
+    to the 20 most recent entries.
+    
+    Returns:
+        JSON response: Confirmation of save with formatted timestamp
+    """
     data = request.json
 
     # Create a new entry with current datetime in ISO format
@@ -127,6 +207,14 @@ def save():
 
 @app.route('/clear', methods=['POST'])
 def clear_history():
+    """
+    API endpoint to clear typing history.
+    
+    Clears all typing history entries from the settings file.
+    
+    Returns:
+        JSON response: Confirmation of history clearing
+    """
     settings = load_settings()
     settings['history'] = []
     save_settings(settings)
@@ -135,6 +223,15 @@ def clear_history():
 
 @app.route('/about')
 def about():
+    """
+    Route handler for the About page.
+    
+    Loads profile image information from settings and determines if the user
+    is an admin (based on localhost access) for conditional display of admin features.
+    
+    Returns:
+        rendered template: The about.html page with profile image and admin status
+    """
     settings = load_settings()
     profile_image = settings.get('profile_image', None)
     # Simple admin check - you can implement a more secure method if needed
@@ -144,6 +241,15 @@ def about():
 
 @app.route('/upload_image', methods=['POST'])
 def upload_image():
+    """
+    Route handler for profile image uploads.
+    
+    Allows admin users (localhost only) to upload a profile image for the About page.
+    Validates the uploaded file, saves it with a secure filename, and updates settings.
+    
+    Returns:
+        redirect: Redirects back to the About page after processing
+    """
     # Simple admin check - you can implement a more secure method if needed
     if request.remote_addr != '127.0.0.1':
         return redirect(url_for('about'))
@@ -173,6 +279,12 @@ def upload_image():
 
 
 def open_browser():
+    """
+    Opens the default web browser to the application URL.
+    
+    Attempts to use Firefox if available, otherwise falls back to the system default browser.
+    Called automatically when the application starts.
+    """
     firefox_path = "C:\\Program Files\\Mozilla Firefox\\firefox.exe"
     try:
         if os.path.exists(firefox_path):
@@ -185,5 +297,9 @@ def open_browser():
 
 
 if __name__ == '__main__':
+    # Open browser after a short delay to ensure the server is running
     threading.Timer(1.5, open_browser).start()  # Increased delay and use open() instead of open_new()
-    app.run(debug=True, use_reloader=False)  # Disable reloader to prevent double opening
+    
+    # Start the Flask development server
+    # Disable reloader to prevent double browser opening
+    app.run(debug=True, use_reloader=False)
