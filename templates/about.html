@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>About - Code Typing Trainer</title>
+  <link rel="icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .about-page {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+    
+    .about-card {
+      background-color: var(--panel-bg);
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      padding: 30px;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      grid-template-rows: auto auto auto;
+      grid-gap: 20px;
+      grid-template-areas:
+        "header header"
+        "image text"
+        "footer footer";
+    }
+    
+    .about-header {
+      grid-area: header;
+      text-align: center;
+    }
+    
+    .about-header h1 {
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    
+    .profile-image-area {
+      grid-area: image;
+    }
+    
+    .profile-image-container {
+      width: 180px;
+      height: 180px;
+      overflow: hidden;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    .profile-image-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .placeholder-image {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-secondary);
+      font-size: 5rem;
+      color: var(--text-secondary);
+    }
+    
+    .profile-text-area {
+      grid-area: text;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    
+    .profile-text-area p {
+      margin-bottom: 12px;
+    }
+    
+    .contact-info {
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    
+    .contact-info a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    
+    .contact-info a:hover {
+      text-decoration: underline;
+    }
+    
+    .about-footer {
+      grid-area: footer;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .navigation {
+      display: flex;
+      justify-content: center;
+    }
+    
+    .back-button {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--accent);
+      color: var(--bg);
+      padding: 8px 16px;
+      border-radius: 20px;
+      text-decoration: none;
+      font-weight: 600;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .back-button i {
+      margin-right: 6px;
+    }
+    
+    .back-button:hover {
+      background-color: var(--accent-hover);
+    }
+    
+    .license-section {
+      background-color: var(--bg-secondary);
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
+    
+    .license-section h2 {
+      color: var(--accent);
+      font-size: 1.2rem;
+      margin-bottom: 10px;
+    }
+    
+    .license-details {
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+    
+    .license-link a {
+      display: inline-flex;
+      align-items: center;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    
+    .license-link a i {
+      margin-right: 5px;
+    }
+    
+    .license-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="about-page">
+    <div class="about-card">
+      <div class="about-header">
+        <h1>About Me</h1>
+      </div>
+      
+      <div class="profile-image-area">
+        <div class="profile-image-container">
+          {% if profile_image %}
+            <img src="{{ url_for('static', filename='uploads/' + profile_image) }}" alt="Ahmad Asmandar">
+          {% else %}
+            <div class="placeholder-image"><i class="fas fa-user-circle"></i></div>
+          {% endif %}
+        </div>
+      </div>
+      
+      <div class="profile-text-area">
+        <p>My name is Ahmad Asmandar. Rooted in the strong traditions of German engineering, I have devoted my career to the art of mechatronics—where mechanics, electronics, and software intersect. After years on the bench perfecting circuits and firmware, I now lead the electronics development department at Kompass GmbH, guiding projects from first sketch to tested prototype.</p>
+        
+        <p>I still find the greatest joy in "hands-on" work: writing fast Embedded C for STM32, crafting VHDL for FPGAs, and automating tools in Python—always with the same care my mentors showed me. Whether I am debugging a UART handler at midnight or mentoring junior engineers during the day, I believe excellence comes from respecting the proven methods of the past and refining them for tomorrow.</p>
+        
+        <p>This Code Typing Trainer grew from that mindset: precise, purposeful, and built to help fellow developers master the timeless skill of fast, error-free coding. When I'm not in the lab, you'll find me reading datasheets over a strong coffee, convinced that great engineering still starts with understanding every detail.</p>
+        
+        <div class="contact-info">
+          <p><i class="fas fa-envelope"></i> <a href="mailto:ahmad.asmandar@gmx.com">ahmad.asmandar@gmx.com</a></p>
+        </div>
+      </div>
+      
+      <div class="about-footer">
+        <div class="navigation">
+          <a href="/" class="back-button"><i class="fas fa-keyboard"></i> Back to Typing Trainer</a>
+        </div>
+        
+        <div class="license-section">
+          <h2>License Information</h2>
+          <p>This software is licensed under the GNU General Public License v3.0 (GPL-3.0)</p>
+          <p class="license-details">
+            This program is free software: you can redistribute it and/or modify
+            it under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+          </p>
+          <p class="license-details">
+            This program is distributed in the hope that it will be useful,
+            but WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+          </p>
+          <p class="license-link">
+            <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank">
+              <i class="fas fa-external-link-alt"></i> View full GPL-3.0 License
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Code Typing Trainer</title>
+  <link rel="icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <div class="left-panel">
+      <h1>Code Typing Trainer</h1>
+      <div class="nav-links">
+        <a href="/about" class="about-link"><i class="fas fa-info-circle"></i> About</a>
+      </div>
+
+      <div class="btn-row">
+        <button id="startBtn">Start</button>
+        <button id="stopBtn" class="hidden">Stop</button>
+        <button id="restartBtn" class="hidden">Restart</button>
+      </div>
+
+      <!-- Single input area that transforms -->
+      <div class="input-container">
+        <textarea id="codeInput" placeholder="Enter your code here to practice..." rows="12"></textarea>
+        <div id="typingTest" class="hidden">
+          <pre id="codeDisplay" tabindex="0"></pre>
+          <div class="progress-container"><div id="progressBar"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <section class="stats-section">
+        <h2>Current</h2>
+        <table class="stats-table">
+          <tr><th>Metric</th><th>Value</th></tr>
+          <tr><td>Date</td><td><span id="date">-</span></td></tr>
+          <tr><td>Timer (s)</td><td><span id="timer">0.0</span></td></tr>
+          <tr><td>Live WPM</td><td><span id="liveWpm">0.0</span></td></tr>
+        </table>
+      </section>
+      
+      <section class="history-section">
+        <h2>Previous</h2>
+        <table id="historyTable" class="history-table">
+          <thead>
+            <tr><th>Date</th><th>WPM</th><th>Errors</th><th>Backspaces</th></tr>
+          </thead>
+          <tbody>
+            {% if history %}
+              {% for item in history %}
+              <tr>
+                <td>{% if item.display_timestamp %}{{ item.display_timestamp }}{% elif item.timestamp %}{{ item.timestamp }}{% else %}{% endif %}</td>
+                <td>{{ item.wpm }}</td>
+                <td>{{ item.errors }}</td>
+                <td>{{ item.backspaces }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="4">No history yet</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <h2>WPM Development</h2>
+    <canvas id="wpmChart"></canvas>
+  </div>
+
+  <div id="summaryModal" class="modal">
+    <div class="modal-content">
+      <h2>Result</h2>
+      <table class="summary-table">
+        <tr><th>WPM</th><td><span id="modalWpm"></span></td></tr>
+        <tr><th>Errors</th><td><span id="modalErrors"></span></td></tr>
+        <tr><th>Backspaces</th><td><span id="modalBackspaces"></span></td></tr>
+      </table>
+      <button id="closeModal">Close</button>
+    </div>
+  </div>
+
+  <script>
+    // Debug output to check history data
+    const historyData = JSON.parse('{{ history|tojson|safe }}');
+    console.log('History data from template:', historyData);
+    
+    // Debug: Log each history item
+    if (historyData && Array.isArray(historyData)) {
+      historyData.forEach((item, index) => {
+        if (item) {
+          console.log(`Item ${index}:`, {
+            timestamp: item.timestamp,
+            display_timestamp: item.display_timestamp,
+            wpm: item.wpm
+          });
+        }
+      });
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

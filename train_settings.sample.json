@@ -1,0 +1,18 @@
+{
+  "history": [
+    {
+      "wpm": 45,
+      "errors": 2,
+      "backspaces": 3,
+      "timestamp": "2025-01-01T12:00:00.000000",
+      "display_timestamp": "2025-01-01 12:00"
+    },
+    {
+      "wpm": 52,
+      "errors": 1,
+      "backspaces": 2,
+      "timestamp": "2025-01-01T11:30:00.000000",
+      "display_timestamp": "2025-01-01 11:30"
+    }
+  ]
+}
