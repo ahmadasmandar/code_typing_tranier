@@ -16,7 +16,10 @@ import json
 import os
 import secrets
 import threading
-import webbrowser
+import subprocess
+import argparse
+import shutil
+import sys
 from datetime import datetime
 
 # Third-party imports
@@ -161,8 +164,8 @@ def index():
     # Sort by timestamp (newest first)
     history.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
 
-    # Debug output
-    print("Sending history to template:", history)
+    # Debug output (disabled to reduce console noise)
+    # print("Sending history to template:", history)
 
     return render_template('index.html', history=history)
 
@@ -278,28 +281,87 @@ def upload_image():
     return redirect(url_for('about'))
 
 
-def open_browser():
+def resolve_browser_path(browser_choice: str):
     """
-    Opens the default web browser to the application URL.
-    
-    Attempts to use Firefox if available, otherwise falls back to the system default browser.
-    Called automatically when the application starts.
+    Resolve the executable path for the requested browser on Windows.
+    Supports 'firefox' and 'edge'. Returns (exe_path, args_for_new_window).
     """
-    firefox_path = "C:\\Program Files\\Mozilla Firefox\\firefox.exe"
+    url_flag = []
+    if browser_choice == 'firefox':
+        candidates = [
+            r"C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+            r"C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
+            shutil.which('firefox')
+        ]
+        exe = next((c for c in candidates if c and os.path.exists(c)), None)
+        return exe, ['-new-window']
+    elif browser_choice == 'edge':
+        candidates = [
+            r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+            r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            shutil.which('msedge')
+        ]
+        exe = next((c for c in candidates if c and os.path.exists(c)), None)
+        return exe, ['--new-window']
+    return None, []
+
+
+def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:5000'):
+    """
+    Launch the chosen browser in a NEW WINDOW to the given URL and watch the process.
+    When the browser process exits, terminate the Flask app.
+    """
+    exe, win_args = resolve_browser_path(browser_choice)
+    proc = None
     try:
-        if os.path.exists(firefox_path):
-            webbrowser.register('firefox', None, webbrowser.BackgroundBrowser(firefox_path))
-            webbrowser.get('firefox').open('http://127.0.0.1:5000')
+        if exe:
+            # Launch specific browser with new-window argument
+            cmd = [exe, *win_args, url]
+            proc = subprocess.Popen(cmd)
         else:
-            webbrowser.open('http://127.0.0.1:5000')
+            # Fall back to system default browser new window when possible
+            import webbrowser
+            webbrowser.open_new(url)
     except Exception:
-        webbrowser.open('http://127.0.0.1:5000')
+        try:
+            import webbrowser
+            webbrowser.open_new(url)
+        except Exception:
+            pass
+
+    # Start watcher thread to exit app when browser window closes
+    if proc is not None:
+        def _watch():
+            try:
+                proc.wait()
+            finally:
+                # Force-exit the process to ensure the dev server stops
+                os._exit(0)
+        t = threading.Thread(target=_watch, daemon=True)
+        t.start()
 
 
 if __name__ == '__main__':
-    # Open browser after a short delay to ensure the server is running
-    threading.Timer(1.5, open_browser).start()  # Increased delay and use open() instead of open_new()
-    
-    # Start the Flask development server
-    # Disable reloader to prevent double browser opening
+    parser = argparse.ArgumentParser(description='Code Typing Trainer')
+    parser.add_argument('--browser', choices=['firefox', 'edge'], default=None,
+                        help='Choose which browser to launch (firefox or edge). If omitted, tries firefox then edge, else default.')
+    # Support commands that inject a standalone '--' separator (e.g., some runners)
+    forwarded = [a for a in sys.argv[1:] if a != '--']
+    args = parser.parse_args(forwarded)
+
+    # Determine browser preference
+    chosen = args.browser
+    if chosen is None:
+        # Auto-detect: prefer firefox, then edge
+        if resolve_browser_path('firefox')[0]:
+            chosen = 'firefox'
+        elif resolve_browser_path('edge')[0]:
+            chosen = 'edge'
+        else:
+            chosen = None  # use default
+
+    # Launch browser after short delay so server is up
+    threading.Timer(1.2, lambda: open_browser_and_watch(chosen if chosen else '', 'http://127.0.0.1:5000')).start()
+
+    # Start the Flask development server without reloader to avoid multiple windows
     app.run(debug=True, use_reloader=False)

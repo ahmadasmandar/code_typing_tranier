@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       backspaceCount = 0,    // Number of backspace key presses
       timerInterval = null;  // Timer interval reference
   let chart = null;          // Chart.js instance for WPM history
+  let spansCache = [];       // Cached list of spans for performance
   
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -68,9 +69,11 @@ document.addEventListener('DOMContentLoaded', () => {
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
     
-    // Create spans for each character to enable individual styling
+    // Create spans for each character to enable individual styling (fast render)
     codeDisplay.innerHTML = '';
-    code.split('').forEach(c => {
+    const frag = document.createDocumentFragment();
+    spansCache = [];
+    for (const c of code) {
       const span = document.createElement('span');
       span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
@@ -78,8 +81,10 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         span.textContent = c;
       }
-      codeDisplay.appendChild(span);
-    });
+      spansCache.push(span);
+      frag.appendChild(span);
+    }
+    codeDisplay.appendChild(frag);
     
     // Reset test state
     index = 0; 
@@ -117,9 +122,11 @@ document.addEventListener('DOMContentLoaded', () => {
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
     
-    // Create spans for each character to enable individual styling
+    // Rebuild spans (fast render) and refresh cache
     codeDisplay.innerHTML = '';
-    code.split('').forEach(c => {
+    const frag = document.createDocumentFragment();
+    spansCache = [];
+    for (const c of code) {
       const span = document.createElement('span');
       span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
@@ -127,8 +134,10 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         span.textContent = c;
       }
-      codeDisplay.appendChild(span);
-    });
+      spansCache.push(span);
+      frag.appendChild(span);
+    }
+    codeDisplay.appendChild(frag);
     
     // Reset test state
     index = 0; 
@@ -157,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (ignore.includes(e.key)) return;
     e.preventDefault();
-    const spans = codeDisplay.querySelectorAll('span');
+    const spans = spansCache;
     if (!startedTyping) {
       startedTyping = true;
       startTime = Date.now();
@@ -204,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function highlightActive() {
-    const spans = codeDisplay.querySelectorAll('span');
+    const spans = spansCache;
     spans.forEach(s=>s.classList.remove('active'));
     if (spans[index] && !spans[index].classList.contains('errorCursor')) {
       spans[index].classList.add('active');
@@ -217,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let currentLineTop = 0;
         
         // Count lines and find the current line's position
-        const allSpans = Array.from(codeDisplay.querySelectorAll('span'));
+        const allSpans = spansCache;
         let lineStarts = [0]; // Track the start index of each line
         
         // Find all line breaks to determine line positions

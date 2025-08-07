@@ -325,7 +325,11 @@ textarea {
   border-radius: 4px;
   padding: 10px;
   font-size: 0.9rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Courier New', Consolas, monospace;
+  font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "liga" 0, "clig" 0, "calt" 0, "dlig" 0;
   resize: none;
   line-height: 1.4;
   min-height: 0;
@@ -399,7 +403,11 @@ pre#codeDisplay {
   border-radius: 4px;
   padding: 10px;
   font-size: 0.9rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Courier New', Consolas, monospace;
+  font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "liga" 0, "clig" 0, "calt" 0, "dlig" 0;
   margin: 0;
   margin-bottom: 10px;
   line-height: 1.4;

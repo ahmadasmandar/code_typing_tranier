@@ -6,7 +6,6 @@
   <link rel="icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
   <link rel="shortcut icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -88,22 +87,7 @@
   </div>
 
   <script>
-    // Debug output to check history data
     const historyData = JSON.parse('{{ history|tojson|safe }}');
-    console.log('History data from template:', historyData);
-    
-    // Debug: Log each history item
-    if (historyData && Array.isArray(historyData)) {
-      historyData.forEach((item, index) => {
-        if (item) {
-          console.log(`Item ${index}:`, {
-            timestamp: item.timestamp,
-            display_timestamp: item.display_timestamp,
-            wpm: item.wpm
-          });
-        }
-      });
-    }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
