@@ -149,6 +149,17 @@ body {
   margin: 0 0.25rem;
 }
 
+#templateRow {
+  /* Dedicated accent just for the template picker */
+  --tpl-accent: #6C9EFF; /* modern blue */
+  --tpl-accent-contrast: #ffffff;
+  /* Dark select theme */
+  --tpl-select-bg: #1f2733;
+  --tpl-select-text: #f1f5f9;
+  --tpl-select-border: #2b3442;
+  --tpl-select-arrow: #cbd5e1;
+}
+
 .template-group {
   display: flex;
   align-items: center;
@@ -192,37 +203,51 @@ body {
 }
 
 /* Dropdown styling for template picker */
+
 .template-select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  padding: 0.4rem 2rem 0.4rem 0.65rem;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-                    linear-gradient(135deg, var(--muted) 50%, transparent 50%),
-                    linear-gradient(to right, var(--border), var(--border));
-  background-position: calc(100% - 16px) calc(1rem - 3px), calc(100% - 11px) calc(1rem - 3px), calc(100% - 2.5rem) 50%;
-  background-size: 5px 5px, 5px 5px, 1px 60%;
+  padding: 0.5rem 2.2rem 0.5rem 0.75rem;
+  border: 1px solid var(--tpl-select-border);
+  background: var(--tpl-select-bg);
+  color: var(--tpl-select-text);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.2);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+  background-image: linear-gradient(45deg, transparent 50%, var(--tpl-select-arrow) 50%),
+                    linear-gradient(135deg, var(--tpl-select-arrow) 50%, transparent 50%),
+                    radial-gradient(circle at 0 0, transparent 0, transparent 100%);
+  background-position: calc(100% - 16px) calc(50% - 3px), calc(100% - 11px) calc(50% - 3px), 0 0;
+  background-size: 5px 5px, 5px 5px, 100% 100%;
   background-repeat: no-repeat;
 }
 
+.template-select:hover {
+  border-color: color-mix(in srgb, var(--tpl-accent) 35%, var(--tpl-select-border));
+}
+
 .template-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--tpl-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tpl-accent) 25%, transparent);
 }
 
 .template-apply {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--tpl-accent);
+  color: #ffffff;
+  border-color: var(--tpl-accent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--tpl-accent) 35%, transparent);
 }
 
 .template-apply:hover {
-  filter: brightness(1.05);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--tpl-accent) 45%, transparent);
+}
+
+.template-apply:active {
+  transform: translateY(1px);
 }
 
 .admin-section form {

@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const templateLevelSel = document.getElementById('templateLevel');
   const templateApplyBtn = document.getElementById('templateApply');
   let TEMPLATE_MAP = null; // { langId: { levelId: snippet } }
+  let TEMPLATE_LABELS = {}; // { langId: label }
 
   function populateLanguageDropdown(map) {
     if (!templateLangSel) return;
@@ -66,7 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ids.forEach(id => {
       const opt = document.createElement('option');
       opt.value = id;
-      opt.textContent = id === 'practice' ? 'Practice (Symbols)' : id.toUpperCase();
+      const label = TEMPLATE_LABELS[id] || (id === 'practice' ? 'Practice (Symbols)' : id.toUpperCase());
+      opt.textContent = label;
       templateLangSel.appendChild(opt);
     });
   }
@@ -89,11 +91,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('static/templates.json', { cache: 'no-cache' });
       if (!res.ok) throw new Error('Failed to load templates.json');
       const data = await res.json();
-      // Convert JSON structure to the flat map used by renderer
+      // Convert JSON structure to the flat map used by renderer and capture labels
       const map = {};
+      TEMPLATE_LABELS = {};
       (data.languages || []).forEach(lang => {
         const langId = lang.id;
         if (!langId) return;
+        TEMPLATE_LABELS[langId] = lang.label || langId.toUpperCase();
         map[langId] = map[langId] || {};
         (lang.levels || []).forEach(lvl => {
           if (lvl.id && typeof lvl.snippet === 'string') {
@@ -110,11 +114,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       // fallback if empty
       TEMPLATE_MAP = CODE_TEMPLATES;
+      TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
       populateLanguageDropdown(TEMPLATE_MAP);
       populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
     } catch (e) {
       // Fallback to built-in templates if fetch/parse fails
       TEMPLATE_MAP = CODE_TEMPLATES;
+      TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
       populateLanguageDropdown(TEMPLATE_MAP);
       populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
     }

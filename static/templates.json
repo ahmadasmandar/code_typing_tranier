@@ -18,6 +18,56 @@
           "id": "advanced",
           "label": "Advanced",
           "snippet": "#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct Node {\n    int val;\n    struct Node *next;\n} Node;\n\nNode* push(Node* head, int v) {\n    Node* n = malloc(sizeof(Node));\n    n->val = v; n->next = head;\n    return n;\n}\n\nvoid print(Node* head){\n    for(Node* p=head; p; p=p->next) printf(\"%d \", p->val);\n    printf(\"\\n\");\n}\n\nvoid free_list(Node* head){\n    while(head){ Node* t=head; head=head->next; free(t);}\n}\n\nint main(void){\n    Node* head = NULL;\n    for(int i=0;i<5;i++) head = push(head, i*i);\n    print(head);\n    free_list(head);\n    return 0;\n}\n"
+        },
+        {
+          "id": "uart_tx",
+          "label": "UART TX (8N1)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity uart_tx is\n  generic ( CLKS_PER_BIT : natural := 868 ); -- e.g. 100MHz/115200\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    start : in  std_logic;\n    data  : in  std_logic_vector(7 downto 0);\n    tx    : out std_logic;\n    busy  : out std_logic\n  );\nend;\n\narchitecture rtl of uart_tx is\n  type state_t is (IDLE, START, DATA, STOP);\n  signal state : state_t := IDLE;\n  signal bitidx : unsigned(2 downto 0) := (others => '0');\n  signal baudcnt : unsigned(15 downto 0) := (others => '0');\n  signal shreg : std_logic_vector(7 downto 0) := (others => '0');\n  signal tx_r  : std_logic := '1';\nbegin\n  tx   <= tx_r;\n  busy <= '1' when state /= IDLE else '0';\n\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      state <= IDLE; tx_r <= '1'; bitidx <= (others => '0'); baudcnt <= (others => '0');\n    elsif rising_edge(clk) then\n      case state is\n        when IDLE =>\n          tx_r <= '1'; baudcnt <= (others => '0'); bitidx <= (others => '0');\n          if start = '1' then shreg <= data; state <= START; end if;\n        when START =>\n          tx_r <= '0';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0'); state <= DATA;\n          else baudcnt <= baudcnt + 1; end if;\n        when DATA =>\n          tx_r <= shreg(0);\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0');\n            shreg <= '0' & shreg(7 downto 1);\n            if bitidx = 7 then state <= STOP; else bitidx <= bitidx + 1; end if;\n          else baudcnt <= baudcnt + 1; end if;\n        when STOP =>\n          tx_r <= '1';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            state <= IDLE; baudcnt <= (others => '0');\n          else baudcnt <= baudcnt + 1; end if;\n      end case;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "pwm",
+          "label": "PWM (8-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity pwm8 is\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    duty  : in  unsigned(7 downto 0);\n    pwm_o : out std_logic\n  );\nend;\n\narchitecture rtl of pwm8 is\n  signal cnt : unsigned(7 downto 0) := (others => '0');\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then cnt <= (others => '0');\n    elsif rising_edge(clk) then cnt <= cnt + 1; end if;\n  end process;\n  pwm_o <= '1' when cnt < duty else '0';\nend architecture;\n"
+        },
+        {
+          "id": "clk_div",
+          "label": "Clock Divider",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity clk_div is\n  generic ( DIV : natural := 50_000_000 );\n  port ( clk : in std_logic; rst : in std_logic; clk_o : out std_logic );\nend;\n\narchitecture rtl of clk_div is\n  signal cnt : unsigned(31 downto 0) := (others => '0');\n  signal q   : std_logic := '0';\nbegin\n  clk_o <= q;\n  process(clk, rst)\n  begin\n    if rst = '1' then cnt <= (others => '0'); q <= '0';\n    elsif rising_edge(clk) then\n      if cnt = to_unsigned(DIV-1, cnt'length) then cnt <= (others => '0'); q <= not q;\n      else cnt <= cnt + 1; end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "debounce",
+          "label": "Debouncer",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity debounce is\n  generic ( N : natural := 100_000 ); -- cycles stable\n  port ( clk : in std_logic; rst : in std_logic; din : in std_logic; dout : out std_logic );\nend;\n\narchitecture rtl of debounce is\n  signal sync0, sync1 : std_logic := '0';\n  signal cnt : unsigned(31 downto 0) := (others => '0');\n  signal q   : std_logic := '0';\nbegin\n  dout <= q;\n  process(clk, rst)\n  begin\n    if rst = '1' then sync0 <= '0'; sync1 <= '0'; q <= '0'; cnt <= (others => '0');\n    elsif rising_edge(clk) then\n      sync0 <= din; sync1 <= sync0;\n      if sync1 = q then cnt <= (others => '0');\n      else\n        if cnt = to_unsigned(N, cnt'length) then q <= sync1; cnt <= (others => '0');\n        else cnt <= cnt + 1; end if;\n      end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "sync2ff",
+          "label": "2FF Synchronizer",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity sync2ff is\n  port ( clk : in std_logic; rst : in std_logic; din : in std_logic; dout : out std_logic );\nend;\n\narchitecture rtl of sync2ff is\n  signal s0, s1 : std_logic := '0';\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then s0 <= '0'; s1 <= '0';\n    elsif rising_edge(clk) then s0 <= din; s1 <= s0; end if;\n  end process;\n  dout <= s1;\nend architecture;\n"
+        },
+        {
+          "id": "gray_counter",
+          "label": "Gray Counter (4-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity gray4 is\n  port ( clk : in std_logic; rst : in std_logic; q : out std_logic_vector(3 downto 0) );\nend;\n\narchitecture rtl of gray4 is\n  signal b : unsigned(3 downto 0) := (others => '0');\n  function bin2gray(x : unsigned) return std_logic_vector is\n  begin\n    return std_logic_vector(x xor (x srl 1));\n  end;\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then b <= (others => '0');\n    elsif rising_edge(clk) then b <= b + 1; end if;\n  end process;\n  q <= bin2gray(b);\nend architecture;\n"
+        },
+        {
+          "id": "fifo_simple",
+          "label": "FIFO (simple)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity fifo_simple is\n  generic ( DEPTH : natural := 16; AW : natural := 4 );\n  port ( clk : in std_logic; rst : in std_logic;\n         wr  : in std_logic; din : in std_logic_vector(7 downto 0);\n         rd  : in std_logic; dout: out std_logic_vector(7 downto 0);\n         empty: out std_logic; full: out std_logic );\nend;\n\narchitecture rtl of fifo_simple is\n  type ram_t is array(0 to DEPTH-1) of std_logic_vector(7 downto 0);\n  signal ram : ram_t;\n  signal wptr, rptr : unsigned(AW-1 downto 0) := (others => '0');\n  signal cnt : unsigned(AW downto 0) := (others => '0');\n  signal q   : std_logic_vector(7 downto 0) := (others => '0');\nbegin\n  dout  <= q;\n  empty <= '1' when cnt = 0 else '0';\n  full  <= '1' when cnt = DEPTH else '0';\n\n  process(clk, rst)\n  begin\n    if rst = '1' then wptr <= (others => '0'); rptr <= (others => '0'); cnt <= (others => '0'); q <= (others => '0');\n    elsif rising_edge(clk) then\n      if wr = '1' and full = '0' then\n        ram(to_integer(wptr)) <= din; wptr <= wptr + 1; cnt <= cnt + 1;\n      end if;\n      if rd = '1' and empty = '0' then\n        q <= ram(to_integer(rptr)); rptr <= rptr + 1; cnt <= cnt - 1;\n      end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "lfsr",
+          "label": "LFSR (8-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity lfsr8 is\n  port ( clk : in std_logic; rst : in std_logic; q : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of lfsr8 is\n  signal r : std_logic_vector(7 downto 0) := x\"01\"; -- nonzero seed\n  signal fb: std_logic;\nbegin\n  fb <= r(7) xor r(5) xor r(4) xor r(3); -- taps for 8-bit\n  process(clk, rst)\n  begin\n    if rst = '1' then r <= x\"01\";\n    elsif rising_edge(clk) then r <= r(6 downto 0) & fb; end if;\n  end process;\n  q <= r;\nend architecture;\n"
+        },
+        {
+          "id": "shift_reg",
+          "label": "Shift Register (8)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity shreg8 is\n  port ( clk : in std_logic; rst : in std_logic; en : in std_logic; din : in std_logic; q : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of shreg8 is\n  signal r : std_logic_vector(7 downto 0) := (others => '0');\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then r <= (others => '0');\n    elsif rising_edge(clk) then\n      if en = '1' then r <= r(6 downto 0) & din; end if;\n    end if;\n  end process;\n  q <= r;\nend architecture;\n"
+        },
+        {
+          "id": "spi_master",
+          "label": "SPI Master (basic)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity spi_master is\n  generic ( CLKS_PER_HALF_SCK : natural := 4 );\n  port ( clk : in std_logic; rst : in std_logic;\n         start : in std_logic; mosi_din : in std_logic_vector(7 downto 0);\n         sck : out std_logic; mosi : out std_logic; miso : in std_logic; cs_n : out std_logic;\n         busy : out std_logic; mosi_dout : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of spi_master is\n  type state_t is (IDLE, ASSERT, TRANSFER, DONE);\n  signal state : state_t := IDLE;\n  signal cnt   : unsigned(7 downto 0) := (others => '0');\n  signal bitix : unsigned(2 downto 0) := (others => '0');\n  signal shmosi: std_logic_vector(7 downto 0) := (others => '0');\n  signal shmiso: std_logic_vector(7 downto 0) := (others => '0');\n  signal sck_r : std_logic := '0';\n  signal cs_r  : std_logic := '1';\nbegin\n  sck  <= sck_r; cs_n <= cs_r; mosi <= shmosi(7); busy <= '1' when state /= IDLE else '0';\n  process(clk, rst)\n  begin\n    if rst = '1' then state <= IDLE; sck_r <= '0'; cs_r <= '1'; bitix <= (others => '0'); cnt <= (others => '0'); shmosi <= (others => '0'); shmiso <= (others => '0');\n    elsif rising_edge(clk) then\n      case state is\n        when IDLE =>\n          if start = '1' then cs_r <= '0'; shmosi <= mosi_din; state <= ASSERT; end if;\n        when ASSERT =>\n          if cnt = to_unsigned(CLKS_PER_HALF_SCK, cnt'length) then cnt <= (others => '0'); state <= TRANSFER; end if; cnt <= cnt + 1;\n        when TRANSFER =>\n          if cnt = to_unsigned(CLKS_PER_HALF_SCK, cnt'length) then\n            cnt <= (others => '0'); sck_r <= not sck_r;\n            if sck_r = '1' then -- falling edge: capture\n              shmiso <= shmiso(6 downto 0) & miso;\n              if bitix = 7 then state <= DONE; else bitix <= bitix + 1; end if;\n            else -- rising edge: shift out\n              shmosi <= shmosi(6 downto 0) & '0';\n            end if;\n          else cnt <= cnt + 1; end if;\n        when DONE =>\n          cs_r <= '1'; sck_r <= '0'; mosi_dout <= shmiso; state <= IDLE; bitix <= (others => '0');\n      end case;\n    end if;\n  end process;\nend architecture;\n"
         }
       ]
     },
@@ -70,6 +120,118 @@
           "id": "mixed",
           "label": "Mixed Symbols",
           "snippet": "@$#%&*_-=+|:;,.!?~^`<>()[]{}\\/\\\\\nemail@example.com | https://example.com/path?x=1&y=2#frag\nJSON: {\"key\": [1, 2, 3], \"ok\": true} | array[0] = value;\n"
+        }
+      ]
+    },
+    {
+      "id": "vhdl",
+      "label": "VHDL",
+      "levels": [
+        {
+          "id": "beginner",
+          "label": "Beginner (AND Gate)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity and_gate is\n  port (\n    a : in  std_logic;\n    b : in  std_logic;\n    y : out std_logic\n  );\nend entity;\n\narchitecture rtl of and_gate is\nbegin\n  y <= a and b;\nend architecture;\n"
+        },
+        {
+          "id": "intermediate",
+          "label": "Intermediate (2:1 MUX)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity mux2 is\n  port (\n    s  : in  std_logic;\n    a  : in  std_logic;\n    b  : in  std_logic;\n    y  : out std_logic\n  );\nend entity;\n\narchitecture rtl of mux2 is\nbegin\n  y <= a when s = '0' else b;\nend architecture;\n"
+        },
+        {
+          "id": "counter",
+          "label": "Counter (8-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity counter is\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    count : out unsigned(7 downto 0)\n  );\nend entity;\n\narchitecture rtl of counter is\n  signal r : unsigned(7 downto 0) := (others => '0');\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      r <= (others => '0');\n    elsif rising_edge(clk) then\n      r <= r + 1;\n    end if;\n  end process;\n  count <= r;\nend architecture;\n"
+        },
+        {
+          "id": "fsm",
+          "label": "FSM (2-state)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity fsm is\n  port (\n    clk : in  std_logic;\n    rst : in  std_logic;\n    x   : in  std_logic;\n    y   : out std_logic\n  );\nend;\n\narchitecture rtl of fsm is\n  type state_t is (S0, S1);\n  signal state, next : state_t := S0;\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      state <= S0;\n    elsif rising_edge(clk) then\n      state <= next;\n    end if;\n  end process;\n\n  process(state, x)\n  begin\n    y <= '0';\n    case state is\n      when S0 =>\n        if x = '1' then\n          next <= S1;\n        else\n          next <= S0;\n        end if;\n      when S1 =>\n        y <= '1';\n        next <= S0;\n    end case;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "testbench",
+          "label": "Testbench (AND Gate)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity tb_and is end;\narchitecture sim of tb_and is\n  signal a, b, y : std_logic := '0';\nbegin\n  uut: entity work.and_gate\n    port map(a => a, b => b, y => y);\n\n  stim: process\n  begin\n    a <= '0'; b <= '0'; wait for 10 ns;\n    a <= '0'; b <= '1'; wait for 10 ns;\n    a <= '1'; b <= '0'; wait for 10 ns;\n    a <= '1'; b <= '1'; wait for 10 ns;\n    wait;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "uart_tx",
+          "label": "UART TX (8N1)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity uart_tx is\n  generic ( CLKS_PER_BIT : natural := 868 ); -- e.g. 100MHz/115200\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    start : in  std_logic;\n    data  : in  std_logic_vector(7 downto 0);\n    tx    : out std_logic;\n    busy  : out std_logic\n  );\nend;\n\narchitecture rtl of uart_tx is\n  type state_t is (IDLE, START, DATA, STOP);\n  signal state : state_t := IDLE;\n  signal bitidx : unsigned(2 downto 0) := (others => '0');\n  signal baudcnt : unsigned(15 downto 0) := (others => '0');\n  signal shreg : std_logic_vector(7 downto 0) := (others => '0');\n  signal tx_r  : std_logic := '1';\nbegin\n  tx   <= tx_r;\n  busy <= '1' when state /= IDLE else '0';\n\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      state <= IDLE; tx_r <= '1'; bitidx <= (others => '0'); baudcnt <= (others => '0');\n    elsif rising_edge(clk) then\n      case state is\n        when IDLE =>\n          tx_r <= '1'; baudcnt <= (others => '0'); bitidx <= (others => '0');\n          if start = '1' then shreg <= data; state <= START; end if;\n        when START =>\n          tx_r <= '0';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0'); state <= DATA;\n          else baudcnt <= baudcnt + 1; end if;\n        when DATA =>\n          tx_r <= shreg(0);\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0');\n            shreg <= '0' & shreg(7 downto 1);\n            if bitidx = 7 then state <= STOP; else bitidx <= bitidx + 1; end if;\n          else baudcnt <= baudcnt + 1; end if;\n        when STOP =>\n          tx_r <= '1';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            state <= IDLE; baudcnt <= (others => '0');\n          else baudcnt <= baudcnt + 1; end if;\n      end case;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "pwm",
+          "label": "PWM (8-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity pwm8 is\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    duty  : in  unsigned(7 downto 0);\n    pwm_o : out std_logic\n  );\nend;\n\narchitecture rtl of pwm8 is\n  signal cnt : unsigned(7 downto 0) := (others => '0');\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then cnt <= (others => '0');\n    elsif rising_edge(clk) then cnt <= cnt + 1; end if;\n  end process;\n  pwm_o <= '1' when cnt < duty else '0';\nend architecture;\n"
+        },
+        {
+          "id": "clk_div",
+          "label": "Clock Divider",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity clk_div is\n  generic ( DIV : natural := 50_000_000 );\n  port ( clk : in std_logic; rst : in std_logic; clk_o : out std_logic );\nend;\n\narchitecture rtl of clk_div is\n  signal cnt : unsigned(31 downto 0) := (others => '0');\n  signal q   : std_logic := '0';\nbegin\n  clk_o <= q;\n  process(clk, rst)\n  begin\n    if rst = '1' then cnt <= (others => '0'); q <= '0';\n    elsif rising_edge(clk) then\n      if cnt = to_unsigned(DIV-1, cnt'length) then cnt <= (others => '0'); q <= not q;\n      else cnt <= cnt + 1; end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "debounce",
+          "label": "Debouncer",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity debounce is\n  generic ( N : natural := 100_000 ); -- cycles stable\n  port ( clk : in std_logic; rst : in std_logic; din : in std_logic; dout : out std_logic );\nend;\n\narchitecture rtl of debounce is\n  signal sync0, sync1 : std_logic := '0';\n  signal cnt : unsigned(31 downto 0) := (others => '0');\n  signal q   : std_logic := '0';\nbegin\n  dout <= q;\n  process(clk, rst)\n  begin\n    if rst = '1' then sync0 <= '0'; sync1 <= '0'; q <= '0'; cnt <= (others => '0');\n    elsif rising_edge(clk) then\n      sync0 <= din; sync1 <= sync0;\n      if sync1 = q then cnt <= (others => '0');\n      else\n        if cnt = to_unsigned(N, cnt'length) then q <= sync1; cnt <= (others => '0');\n        else cnt <= cnt + 1; end if;\n      end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "sync2ff",
+          "label": "2FF Synchronizer",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity sync2ff is\n  port ( clk : in std_logic; rst : in std_logic; din : in std_logic; dout : out std_logic );\nend;\n\narchitecture rtl of sync2ff is\n  signal s0, s1 : std_logic := '0';\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then s0 <= '0'; s1 <= '0';\n    elsif rising_edge(clk) then s0 <= din; s1 <= s0; end if;\n  end process;\n  dout <= s1;\nend architecture;\n"
+        },
+        {
+          "id": "gray_counter",
+          "label": "Gray Counter (4-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity gray4 is\n  port ( clk : in std_logic; rst : in std_logic; q : out std_logic_vector(3 downto 0) );\nend;\n\narchitecture rtl of gray4 is\n  signal b : unsigned(3 downto 0) := (others => '0');\n  function bin2gray(x : unsigned) return std_logic_vector is\n  begin\n    return std_logic_vector(x xor (x srl 1));\n  end;\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then b <= (others => '0');\n    elsif rising_edge(clk) then b <= b + 1; end if;\n  end process;\n  q <= bin2gray(b);\nend architecture;\n"
+        },
+        {
+          "id": "fifo_simple",
+          "label": "FIFO (simple)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity fifo_simple is\n  generic ( DEPTH : natural := 16; AW : natural := 4 );\n  port ( clk : in std_logic; rst : in std_logic;\n         wr  : in std_logic; din : in std_logic_vector(7 downto 0);\n         rd  : in std_logic; dout: out std_logic_vector(7 downto 0);\n         empty: out std_logic; full: out std_logic );\nend;\n\narchitecture rtl of fifo_simple is\n  type ram_t is array(0 to DEPTH-1) of std_logic_vector(7 downto 0);\n  signal ram : ram_t;\n  signal wptr, rptr : unsigned(AW-1 downto 0) := (others => '0');\n  signal cnt : unsigned(AW downto 0) := (others => '0');\n  signal q   : std_logic_vector(7 downto 0) := (others => '0');\nbegin\n  dout  <= q;\n  empty <= '1' when cnt = 0 else '0';\n  full  <= '1' when cnt = DEPTH else '0';\n\n  process(clk, rst)\n  begin\n    if rst = '1' then wptr <= (others => '0'); rptr <= (others => '0'); cnt <= (others => '0'); q <= (others => '0');\n    elsif rising_edge(clk) then\n      if wr = '1' and full = '0' then\n        ram(to_integer(wptr)) <= din; wptr <= wptr + 1; cnt <= cnt + 1;\n      end if;\n      if rd = '1' and empty = '0' then\n        q <= ram(to_integer(rptr)); rptr <= rptr + 1; cnt <= cnt - 1;\n      end if;\n    end if;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "lfsr",
+          "label": "LFSR (8-bit)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity lfsr8 is\n  port ( clk : in std_logic; rst : in std_logic; q : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of lfsr8 is\n  signal r : std_logic_vector(7 downto 0) := x\"01\"; -- nonzero seed\n  signal fb: std_logic;\nbegin\n  fb <= r(7) xor r(5) xor r(4) xor r(3); -- taps for 8-bit\n  process(clk, rst)\n  begin\n    if rst = '1' then r <= x\"01\";\n    elsif rising_edge(clk) then r <= r(6 downto 0) & fb; end if;\n  end process;\n  q <= r;\nend architecture;\n"
+        },
+        {
+          "id": "shift_reg",
+          "label": "Shift Register (8)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity shreg8 is\n  port ( clk : in std_logic; rst : in std_logic; en : in std_logic; din : in std_logic; q : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of shreg8 is\n  signal r : std_logic_vector(7 downto 0) := (others => '0');\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then r <= (others => '0');\n    elsif rising_edge(clk) then\n      if en = '1' then r <= r(6 downto 0) & din; end if;\n    end if;\n  end process;\n  q <= r;\nend architecture;\n"
+        },
+        {
+          "id": "spi_master",
+          "label": "SPI Master (basic)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity spi_master is\n  generic ( CLKS_PER_HALF_SCK : natural := 4 );\n  port ( clk : in std_logic; rst : in std_logic;\n         start : in std_logic; mosi_din : in std_logic_vector(7 downto 0);\n         sck : out std_logic; mosi : out std_logic; miso : in std_logic; cs_n : out std_logic;\n         busy : out std_logic; mosi_dout : out std_logic_vector(7 downto 0) );\nend;\n\narchitecture rtl of spi_master is\n  type state_t is (IDLE, ASSERT, TRANSFER, DONE);\n  signal state : state_t := IDLE;\n  signal cnt   : unsigned(7 downto 0) := (others => '0');\n  signal bitix : unsigned(2 downto 0) := (others => '0');\n  signal shmosi: std_logic_vector(7 downto 0) := (others => '0');\n  signal shmiso: std_logic_vector(7 downto 0) := (others => '0');\n  signal sck_r : std_logic := '0';\n  signal cs_r  : std_logic := '1';\nbegin\n  sck  <= sck_r; cs_n <= cs_r; mosi <= shmosi(7); busy <= '1' when state /= IDLE else '0';\n  process(clk, rst)\n  begin\n    if rst = '1' then state <= IDLE; sck_r <= '0'; cs_r <= '1'; bitix <= (others => '0'); cnt <= (others => '0'); shmosi <= (others => '0'); shmiso <= (others => '0');\n    elsif rising_edge(clk) then\n      case state is\n        when IDLE =>\n          if start = '1' then cs_r <= '0'; shmosi <= mosi_din; state <= ASSERT; end if;\n        when ASSERT =>\n          if cnt = to_unsigned(CLKS_PER_HALF_SCK, cnt'length) then cnt <= (others => '0'); state <= TRANSFER; end if; cnt <= cnt + 1;\n        when TRANSFER =>\n          if cnt = to_unsigned(CLKS_PER_HALF_SCK, cnt'length) then\n            cnt <= (others => '0'); sck_r <= not sck_r;\n            if sck_r = '1' then -- falling edge: capture\n              shmiso <= shmiso(6 downto 0) & miso;\n              if bitix = 7 then state <= DONE; else bitix <= bitix + 1; end if;\n            else -- rising edge: shift out\n              shmosi <= shmosi(6 downto 0) & '0';\n            end if;\n          else cnt <= cnt + 1; end if;\n        when DONE =>\n          cs_r <= '1'; sck_r <= '0'; mosi_dout <= shmiso; state <= IDLE; bitix <= (others => '0');\n      end case;\n    end if;\n  end process;\nend architecture;\n"
+        }
+      ]
+    },
+    {
+      "id": "c_more",
+      "label": "C (More)",
+      "levels": [
+        {
+          "id": "loops",
+          "label": "Loops",
+          "snippet": "#include <stdio.h>\n\nint main(void) {\n    for (int i = 0; i < 5; i++) {\n        printf(\"for: %d\\n\", i);\n    }\n\n    int j = 0;\n    while (j < 3) {\n        printf(\"while: %d\\n\", j);\n        j++;\n    }\n\n    int k = 0;\n    do {\n        printf(\"do-while: %d\\n\", k);\n        k++;\n    } while (k < 2);\n\n    return 0;\n}\n"
+        },
+        {
+          "id": "pointers",
+          "label": "Pointers",
+          "snippet": "#include <stdio.h>\n\nvoid swap(int *a, int *b) {\n    int tmp = *a;\n    *a = *b;\n    *b = tmp;\n}\n\nint main(void) {\n    int x = 10, y = 20;\n    int *px = &x;\n    int *py = &y;\n    printf(\"before: x=%d y=%d\\n\", x, y);\n    swap(px, py);\n    printf(\"after:  x=%d y=%d\\n\", x, y);\n    return 0;\n}\n"
+        },
+        {
+          "id": "arrays",
+          "label": "Arrays",
+          "snippet": "#include <stdio.h>\n\nint main(void) {\n    int a[5] = {1,2,3,4,5};\n    int sum = 0;\n    for (int i = 0; i < 5; i++) { sum += a[i]; }\n    printf(\"sum=%d\\n\", sum);\n\n    int b[2][3] = {{1,2,3},{4,5,6}};\n    printf(\"b[1][2]=%d\\n\", b[1][2]);\n    return 0;\n}\n"
+        },
+        {
+          "id": "strings",
+          "label": "Strings",
+          "snippet": "#include <stdio.h>\n#include <string.h>\n\nint main(void) {\n    char s[32] = \"Hello\";\n    strcat(s, \", C!\");\n    printf(\"%s len=%zu\\n\", s, strlen(s));\n\n    char t[32];\n    strcpy(t, s);\n    printf(\"copy: %s\\n\", t);\n    return 0;\n}\n"
+        },
+        {
+          "id": "file-io",
+          "label": "File I/O",
+          "snippet": "#include <stdio.h>\n\nint main(void) {\n    FILE *f = fopen(\"out.txt\", \"w\");\n    if (!f) { perror(\"fopen\"); return 1; }\n    fprintf(f, \"line %d\\n\", 1);\n    fprintf(f, \"line %d\\n\", 2);\n    fclose(f);\n\n    f = fopen(\"out.txt\", \"r\");\n    if (!f) { perror(\"fopen\"); return 1; }\n    char buf[64];\n    while (fgets(buf, sizeof buf, f)) { printf(\"%s\", buf); }\n    fclose(f);\n    return 0;\n}\n"
         }
       ]
     }
