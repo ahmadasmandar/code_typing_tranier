@@ -41,6 +41,37 @@
           "snippet": "from dataclasses import dataclass\nfrom typing import Optional\n\n@dataclass\nclass Node:\n    val: int\n    next: Optional['Node'] = None\n\ndef push(head: Optional[Node], v: int) -> Node:\n    return Node(v, head)\n\n\ndef print_list(head: Optional[Node]) -> None:\n    p = head\n    out = []\n    while p:\n        out.append(str(p.val))\n        p = p.next\n    print(\" \".join(out))\n\nhead = None\nfor i in range(5):\n    head = push(head, i*i)\nprint_list(head)\n"
         }
       ]
+    },
+    {
+      "id": "practice",
+      "label": "Practice (Symbols)",
+      "levels": [
+        {
+          "id": "punctuation",
+          "label": "Punctuation",
+          "snippet": ", . ; : ! ? - -- ...\ncomma, period. semicolon; colon: exclaim! question?\nmix: one, two; three: four! five? six...\n"
+        },
+        {
+          "id": "brackets",
+          "label": "Brackets",
+          "snippet": "(parentheses) [square] {curly} <angle>\n(()[]){}<>  ([{<>}])  <{[()]}>\nwrap(me)[nicely]{please}<ok>\n"
+        },
+        {
+          "id": "operators",
+          "label": "Operators",
+          "snippet": "+ - * / % ++ -- += -= *= /= %= == != > < >= <= && || ! ~ ^ & | << >> <<= >>=\nfoo+=42; bar-=7; x*=y; z/=2; mod%=3;\nif(a==b || c!=d && e>=f) g<<=1; h^=i; j|=k;\n"
+        },
+        {
+          "id": "strings-escapes",
+          "label": "Strings & Escapes",
+          "snippet": "'single' \"double\" `backtick` \\backslash\\ /slash/\nnew\nline, tab\there, quote\"inside\", backslash\\\\\nraw: r'path\\to\\file'  f\"value={42}\"\n"
+        },
+        {
+          "id": "mixed",
+          "label": "Mixed Symbols",
+          "snippet": "@$#%&*_-=+|:;,.!?~^`<>()[]{}\\/\\\\\nemail@example.com | https://example.com/path?x=1&y=2#frag\nJSON: {\"key\": [1, 2, 3], \"ok\": true} | array[0] = value;\n"
+        }
+      ]
     }
   ]
 }

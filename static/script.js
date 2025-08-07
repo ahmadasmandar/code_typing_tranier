@@ -53,44 +53,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // Dynamically load templates from JSON and render buttons
-  const templateContainer = document.getElementById('templateRow');
+  // Build dropdowns from JSON templates
+  const templateLangSel = document.getElementById('templateLang');
+  const templateLevelSel = document.getElementById('templateLevel');
+  const templateApplyBtn = document.getElementById('templateApply');
+  let TEMPLATE_MAP = null; // { langId: { levelId: snippet } }
 
-  function renderTemplateButtons(sourceTemplates) {
-    if (!templateContainer) return;
-    templateContainer.innerHTML = '';
-    const frag = document.createDocumentFragment();
-
-    Object.entries(sourceTemplates).forEach(([langId, levels]) => {
-      const group = document.createElement('div');
-      group.className = 'template-group';
-
-      const label = document.createElement('div');
-      label.className = 'template-label';
-      label.textContent = langId.toUpperCase();
-      group.appendChild(label);
-
-      ['beginner','intermediate','advanced'].forEach(levelId => {
-        if (!levels[levelId]) return;
-        const btn = document.createElement('button');
-        btn.className = 'template-btn';
-        btn.dataset.lang = langId;
-        btn.dataset.level = levelId;
-        btn.textContent = `${langId.toUpperCase()} · ${levelId[0].toUpperCase()}${levelId.slice(1)}`;
-        btn.addEventListener('click', () => {
-          const tpl = sourceTemplates[langId]?.[levelId] || '';
-          if (tpl) {
-            codeInput.value = tpl;
-            codeInput.focus();
-          }
-        });
-        group.appendChild(btn);
-      });
-
-      frag.appendChild(group);
+  function populateLanguageDropdown(map) {
+    if (!templateLangSel) return;
+    templateLangSel.innerHTML = '';
+    const ids = Object.keys(map).sort();
+    ids.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id === 'practice' ? 'Practice (Symbols)' : id.toUpperCase();
+      templateLangSel.appendChild(opt);
     });
+  }
 
-    templateContainer.appendChild(frag);
+  function populateLevelDropdown(map, langId) {
+    if (!templateLevelSel) return;
+    templateLevelSel.innerHTML = '';
+    const levels = map[langId] || {};
+    Object.keys(levels).forEach(levelId => {
+      const label = levelId[0].toUpperCase() + levelId.slice(1).replace('-', ' ');
+      const opt = document.createElement('option');
+      opt.value = levelId;
+      opt.textContent = label;
+      templateLevelSel.appendChild(opt);
+    });
   }
 
   async function loadTemplatesJSON() {
@@ -111,14 +102,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
       if (Object.keys(map).length) {
-        renderTemplateButtons(map);
+        TEMPLATE_MAP = map;
+        populateLanguageDropdown(map);
+        const firstLang = Object.keys(map)[0];
+        populateLevelDropdown(map, firstLang);
         return;
       }
       // fallback if empty
-      renderTemplateButtons(CODE_TEMPLATES);
+      TEMPLATE_MAP = CODE_TEMPLATES;
+      populateLanguageDropdown(TEMPLATE_MAP);
+      populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
     } catch (e) {
       // Fallback to built-in templates if fetch/parse fails
-      renderTemplateButtons(CODE_TEMPLATES);
+      TEMPLATE_MAP = CODE_TEMPLATES;
+      populateLanguageDropdown(TEMPLATE_MAP);
+      populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
     }
   }
 
@@ -186,6 +184,27 @@ document.addEventListener('DOMContentLoaded', () => {
     highlightActive();
     codeDisplay.focus();
   });
+
+  // Wire dropdown change handlers
+  if (templateLangSel) {
+    templateLangSel.addEventListener('change', () => {
+      if (!TEMPLATE_MAP) return;
+      populateLevelDropdown(TEMPLATE_MAP, templateLangSel.value);
+    });
+  }
+
+  if (templateApplyBtn) {
+    templateApplyBtn.addEventListener('click', () => {
+      if (!TEMPLATE_MAP) return;
+      const langId = templateLangSel.value;
+      const levelId = templateLevelSel.value;
+      const tpl = TEMPLATE_MAP[langId]?.[levelId];
+      if (tpl) {
+        codeInput.value = tpl;
+        codeInput.focus();
+      }
+    });
+  }
 
   // Initialize dynamic templates
   loadTemplatesJSON();
