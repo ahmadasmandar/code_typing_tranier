@@ -20,6 +20,21 @@
           "snippet": "#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct Node {\n    int val;\n    struct Node *next;\n} Node;\n\nNode* push(Node* head, int v) {\n    Node* n = malloc(sizeof(Node));\n    n->val = v; n->next = head;\n    return n;\n}\n\nvoid print(Node* head){\n    for(Node* p=head; p; p=p->next) printf(\"%d \", p->val);\n    printf(\"\\n\");\n}\n\nvoid free_list(Node* head){\n    while(head){ Node* t=head; head=head->next; free(t);}\n}\n\nint main(void){\n    Node* head = NULL;\n    for(int i=0;i<5;i++) head = push(head, i*i);\n    print(head);\n    free_list(head);\n    return 0;\n}\n"
         },
         {
+          "id": "fsm_traffic",
+          "label": "FSM (Traffic Light)",
+          "snippet": "#include <stdio.h>\n\ntypedef enum { RED, GREEN, YELLOW } State;\n\nvoid step(State *s){\n    switch(*s){\n        case RED:    *s = GREEN;  break;\n        case GREEN:  *s = YELLOW; break;\n        case YELLOW: *s = RED;    break;\n    }\n}\n\nint main(void){\n    State s = RED;\n    for(int i=0;i<6;i++){ printf(\"%d\\n\", s); step(&s); }\n    return 0;\n}\n"
+        },
+        {
+          "id": "fsm_menu",
+          "label": "FSM (Menu Controller)",
+          "snippet": "#include <stdio.h>\n\ntypedef enum { MENU, PLAY, PAUSE } State;\n\nint main(void){\n    State s = MENU; int cmd;\n    while((cmd = getchar()) != EOF){\n        switch(s){\n        case MENU:  if(cmd=='p') s=PLAY; break;\n        case PLAY:  if(cmd==' ') s=PAUSE; else if(cmd=='q') return 0; break;\n        case PAUSE: if(cmd==' ') s=PLAY; else if(cmd=='m') s=MENU; break;\n        }\n        printf(\"state=%d\\n\", s);\n    }\n    return 0;\n}\n"
+        },
+        {
+          "id": "fsm_tokenizer",
+          "label": "FSM (Simple Tokenizer)",
+          "snippet": "#include <stdio.h>\n\ntypedef enum { S, NUM, ID } State;\n\nint main(void){\n    State s=S; int c;\n    while((c=getchar())!=EOF){\n        switch(s){\n        case S:\n            if(c>='0'&&c<='9'){ s=NUM; putchar('N'); }\n            else if((c>='a'&&c<='z')||(c>='A'&&c<='Z')){ s=ID; putchar('I'); }\n            else putchar('_');\n            break;\n        case NUM:\n            if(!(c>='0'&&c<='9')){ s=S; putchar('|'); }\n            break;\n        case ID:\n            if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_')){ s=S; putchar('|'); }\n            break;\n        }\n    }\n    return 0;\n}\n"
+        },
+        {
           "id": "uart_tx",
           "label": "UART TX (8N1)",
           "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\nentity uart_tx is\n  generic ( CLKS_PER_BIT : natural := 868 ); -- e.g. 100MHz/115200\n  port (\n    clk   : in  std_logic;\n    rst   : in  std_logic;\n    start : in  std_logic;\n    data  : in  std_logic_vector(7 downto 0);\n    tx    : out std_logic;\n    busy  : out std_logic\n  );\nend;\n\narchitecture rtl of uart_tx is\n  type state_t is (IDLE, START, DATA, STOP);\n  signal state : state_t := IDLE;\n  signal bitidx : unsigned(2 downto 0) := (others => '0');\n  signal baudcnt : unsigned(15 downto 0) := (others => '0');\n  signal shreg : std_logic_vector(7 downto 0) := (others => '0');\n  signal tx_r  : std_logic := '1';\nbegin\n  tx   <= tx_r;\n  busy <= '1' when state /= IDLE else '0';\n\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      state <= IDLE; tx_r <= '1'; bitidx <= (others => '0'); baudcnt <= (others => '0');\n    elsif rising_edge(clk) then\n      case state is\n        when IDLE =>\n          tx_r <= '1'; baudcnt <= (others => '0'); bitidx <= (others => '0');\n          if start = '1' then shreg <= data; state <= START; end if;\n        when START =>\n          tx_r <= '0';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0'); state <= DATA;\n          else baudcnt <= baudcnt + 1; end if;\n        when DATA =>\n          tx_r <= shreg(0);\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            baudcnt <= (others => '0');\n            shreg <= '0' & shreg(7 downto 1);\n            if bitidx = 7 then state <= STOP; else bitidx <= bitidx + 1; end if;\n          else baudcnt <= baudcnt + 1; end if;\n        when STOP =>\n          tx_r <= '1';\n          if baudcnt = to_unsigned(CLKS_PER_BIT-1, baudcnt'length) then\n            state <= IDLE; baudcnt <= (others => '0');\n          else baudcnt <= baudcnt + 1; end if;\n      end case;\n    end if;\n  end process;\nend architecture;\n"
@@ -146,6 +161,21 @@
           "id": "fsm",
           "label": "FSM (2-state)",
           "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity fsm is\n  port (\n    clk : in  std_logic;\n    rst : in  std_logic;\n    x   : in  std_logic;\n    y   : out std_logic\n  );\nend;\n\narchitecture rtl of fsm is\n  type state_t is (S0, S1);\n  signal state, next : state_t := S0;\nbegin\n  process(clk, rst)\n  begin\n    if rst = '1' then\n      state <= S0;\n    elsif rising_edge(clk) then\n      state <= next;\n    end if;\n  end process;\n\n  process(state, x)\n  begin\n    y <= '0';\n    case state is\n      when S0 =>\n        if x = '1' then\n          next <= S1;\n        else\n          next <= S0;\n        end if;\n      when S1 =>\n        y <= '1';\n        next <= S0;\n    end case;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "fsm_traffic_vhdl",
+          "label": "FSM (Traffic Light)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity traffic_fsm is\n  port( clk: in std_logic; rst: in std_logic; tick: in std_logic;\n        red, yellow, green: out std_logic );\nend;\n\narchitecture rtl of traffic_fsm is\n  type st is (RED, GREEN, YELLOW);\n  signal s, n: st := RED;\nbegin\n  process(clk, rst) begin\n    if rst='1' then s<=RED;\n    elsif rising_edge(clk) then s<=n; end if;\n  end process;\n  process(s, tick) begin\n    red<='0'; yellow<='0'; green<='0'; n<=s;\n    case s is\n      when RED    => red<='1';    if tick='1' then n<=GREEN;  end if;\n      when GREEN  => green<='1';  if tick='1' then n<=YELLOW; end if;\n      when YELLOW => yellow<='1'; if tick='1' then n<=RED;    end if;\n    end case;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "fsm_seq1011",
+          "label": "FSM (Seq 1011 Mealy)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity seq1011 is\n  port( clk: in std_logic; rst: in std_logic; x: in std_logic; z: out std_logic );\nend;\n\narchitecture rtl of seq1011 is\n  type st is (S0,S1,S10,S101);\n  signal s,n: st := S0;\nbegin\n  process(clk,rst) begin\n    if rst='1' then s<=S0;\n    elsif rising_edge(clk) then s<=n; end if;\n  end process;\n  process(s,x) begin\n    z<='0'; n<=s;\n    case s is\n      when S0   => if x='1' then n<=S1; end if;\n      when S1   => if x='0' then n<=S10; elsif x='1' then n<=S1; end if;\n      when S10  => if x='1' then n<=S101; else n<=S0; end if;\n      when S101 => if x='1' then z<='1'; n<=S1; else n<=S10; end if;\n    end case;\n  end process;\nend architecture;\n"
+        },
+        {
+          "id": "fsm_handshake",
+          "label": "FSM (Handshake 3-state)",
+          "snippet": "library ieee;\nuse ieee.std_logic_1164.all;\n\nentity handshake_fsm is\n  port( clk, rst: in std_logic; start: in std_logic; ack: in std_logic; busy: out std_logic; done: out std_logic );\nend;\n\narchitecture rtl of handshake_fsm is\n  type st is (IDLE, BUSY, DONE);\n  signal s,n: st := IDLE;\nbegin\n  process(clk,rst) begin\n    if rst='1' then s<=IDLE;\n    elsif rising_edge(clk) then s<=n; end if;\n  end process;\n  process(s,start,ack) begin\n    busy<='0'; done<='0'; n<=s;\n    case s is\n      when IDLE => if start='1' then n<=BUSY; end if;\n      when BUSY => busy<='1'; if ack='1' then n<=DONE; end if;\n      when DONE => done<='1'; n<=IDLE;\n    end case;\n  end process;\nend architecture;\n"
         },
         {
           "id": "testbench",
