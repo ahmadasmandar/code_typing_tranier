@@ -39,6 +39,89 @@ document.addEventListener('DOMContentLoaded', () => {
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
+  // Simple code templates by language/level (fallback if JSON not found)
+  const CODE_TEMPLATES = {
+    c: {
+      beginner: `#include <stdio.h>\n\nint main(void) {\n    int sum = 0;\n    for (int i = 1; i <= 10; i++) {\n        sum += i;\n    }\n    printf("Sum: %d\\n", sum);\n    return 0;\n}\n`,
+      intermediate: `#include <stdio.h>\n#include <string.h>\n\nvoid reverse(char *s) {\n    int n = strlen(s);\n    for (int i = 0, j = n - 1; i < j; i++, j--) {\n        char t = s[i]; s[i] = s[j]; s[j] = t;\n    }\n}\n\nint main(void) {\n    char buf[64] = "Hello, World!";\n    reverse(buf);\n    printf("%s\\n", buf);\n    return 0;\n}\n`,
+      advanced: `#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct Node {\n    int val;\n    struct Node *next;\n} Node;\n\nNode* push(Node* head, int v) {\n    Node* n = malloc(sizeof(Node));\n    n->val = v; n->next = head;\n    return n;\n}\n\nvoid print(Node* head){\n    for(Node* p=head; p; p=p->next) printf("%d ", p->val);\n    printf("\\n");\n}\n\nvoid free_list(Node* head){\n    while(head){ Node* t=head; head=head->next; free(t);}\n}\n\nint main(void){\n    Node* head = NULL;\n    for(int i=0;i<5;i++) head = push(head, i*i);\n    print(head);\n    free_list(head);\n    return 0;\n}\n`
+    },
+    python: {
+      beginner: `total = 0\nfor i in range(1, 11):\n    total += i\nprint(f"Sum: {total}")\n`,
+      intermediate: `def reverse(s: str) -> str:\n    return s[::-1]\n\nprint(reverse("Hello, World!"))\n`,
+      advanced: `from dataclasses import dataclass\nfrom typing import Optional\n\n@dataclass\nclass Node:\n    val: int\n    next: Optional['Node'] = None\n\ndef push(head: Optional[Node], v: int) -> Node:\n    return Node(v, head)\n\ndef print_list(head: Optional[Node]) -> None:\n    p = head\n    out = []\n    while p:\n        out.append(str(p.val))\n        p = p.next\n    print(" ".join(out))\n\nhead = None\nfor i in range(5):\n    head = push(head, i*i)\nprint_list(head)\n`
+    }
+  };
+
+  // Dynamically load templates from JSON and render buttons
+  const templateContainer = document.getElementById('templateRow');
+
+  function renderTemplateButtons(sourceTemplates) {
+    if (!templateContainer) return;
+    templateContainer.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    Object.entries(sourceTemplates).forEach(([langId, levels]) => {
+      const group = document.createElement('div');
+      group.className = 'template-group';
+
+      const label = document.createElement('div');
+      label.className = 'template-label';
+      label.textContent = langId.toUpperCase();
+      group.appendChild(label);
+
+      ['beginner','intermediate','advanced'].forEach(levelId => {
+        if (!levels[levelId]) return;
+        const btn = document.createElement('button');
+        btn.className = 'template-btn';
+        btn.dataset.lang = langId;
+        btn.dataset.level = levelId;
+        btn.textContent = `${langId.toUpperCase()} · ${levelId[0].toUpperCase()}${levelId.slice(1)}`;
+        btn.addEventListener('click', () => {
+          const tpl = sourceTemplates[langId]?.[levelId] || '';
+          if (tpl) {
+            codeInput.value = tpl;
+            codeInput.focus();
+          }
+        });
+        group.appendChild(btn);
+      });
+
+      frag.appendChild(group);
+    });
+
+    templateContainer.appendChild(frag);
+  }
+
+  async function loadTemplatesJSON() {
+    try {
+      const res = await fetch('static/templates.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('Failed to load templates.json');
+      const data = await res.json();
+      // Convert JSON structure to the flat map used by renderer
+      const map = {};
+      (data.languages || []).forEach(lang => {
+        const langId = lang.id;
+        if (!langId) return;
+        map[langId] = map[langId] || {};
+        (lang.levels || []).forEach(lvl => {
+          if (lvl.id && typeof lvl.snippet === 'string') {
+            map[langId][lvl.id] = lvl.snippet;
+          }
+        });
+      });
+      if (Object.keys(map).length) {
+        renderTemplateButtons(map);
+        return;
+      }
+      // fallback if empty
+      renderTemplateButtons(CODE_TEMPLATES);
+    } catch (e) {
+      // Fallback to built-in templates if fetch/parse fails
+      renderTemplateButtons(CODE_TEMPLATES);
+    }
+  }
+
   /**
    * Plays a short beep sound for error feedback
    * Uses Web Audio API to generate a 440Hz tone for 100ms
@@ -103,6 +186,9 @@ document.addEventListener('DOMContentLoaded', () => {
     highlightActive();
     codeDisplay.focus();
   });
+
+  // Initialize dynamic templates
+  loadTemplatesJSON();
 
   // Stop button click handler
   stopBtn.addEventListener('click', stopTest);

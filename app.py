@@ -20,6 +20,9 @@ import subprocess
 import argparse
 import shutil
 import sys
+import time
+import urllib.request
+import tempfile
 from datetime import datetime
 
 # Third-party imports
@@ -306,17 +309,30 @@ def resolve_browser_path(browser_choice: str):
     return None, []
 
 
-def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:5000'):
+def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:5000', isolated: bool = True):
     """
     Launch the chosen browser in a NEW WINDOW to the given URL and watch the process.
     When the browser process exits, terminate the Flask app.
     """
     exe, win_args = resolve_browser_path(browser_choice)
     proc = None
+    start_time = time.monotonic()
+    temp_profile_dir = None
     try:
         if exe:
             # Launch specific browser with new-window argument
-            cmd = [exe, *win_args, url]
+            iso_args = []
+            if isolated and browser_choice == 'firefox':
+                # Create isolated profile for Firefox
+                temp_profile_dir = tempfile.mkdtemp(prefix='ctt_ff_')
+                # --no-remote allows running a separate instance
+                iso_args = ['--no-remote', '-profile', temp_profile_dir]
+            elif isolated and browser_choice == 'edge':
+                # Create isolated user data dir for Edge (Chromium)
+                temp_profile_dir = tempfile.mkdtemp(prefix='ctt_edge_')
+                iso_args = [f'--user-data-dir={temp_profile_dir}', '--no-first-run', '--no-default-browser-check']
+
+            cmd = [exe, *win_args, *iso_args, url]
             proc = subprocess.Popen(cmd)
         else:
             # Fall back to system default browser new window when possible
@@ -335,10 +351,33 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
             try:
                 proc.wait()
             finally:
-                # Force-exit the process to ensure the dev server stops
-                os._exit(0)
+                # Only exit if this dedicated browser process lived long enough
+                # to represent the user's dedicated window (avoid immediate delegate cases)
+                lifetime = time.monotonic() - start_time
+                if lifetime >= 2.0:
+                    os._exit(0)
+                # Cleanup temp profile directories
+                if temp_profile_dir:
+                    try:
+                        shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                    except Exception:
+                        pass
         t = threading.Thread(target=_watch, daemon=True)
         t.start()
+
+
+def wait_for_server(url: str, timeout_seconds: float = 15.0, interval: float = 0.3) -> bool:
+    """Poll the given URL until it responds or timeout elapses."""
+    end = time.monotonic() + timeout_seconds
+    while time.monotonic() < end:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as resp:
+                if 200 <= resp.status < 500:
+                    return True
+        except Exception:
+            pass
+        time.sleep(interval)
+    return False
 
 
 if __name__ == '__main__':
@@ -360,8 +399,12 @@ if __name__ == '__main__':
         else:
             chosen = None  # use default
 
-    # Launch browser after short delay so server is up
-    threading.Timer(1.2, lambda: open_browser_and_watch(chosen if chosen else '', 'http://127.0.0.1:5000')).start()
+    # Launch browser only after server is reachable to avoid connection errors
+    def _wait_then_open():
+        url = 'http://127.0.0.1:5000'
+        wait_for_server(url, timeout_seconds=20.0, interval=0.3)
+        open_browser_and_watch(chosen if chosen else '', url)
+    threading.Thread(target=_wait_then_open, daemon=True).start()
 
     # Start the Flask development server without reloader to avoid multiple windows
     app.run(debug=True, use_reloader=False)

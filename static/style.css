@@ -134,6 +134,63 @@ body {
   color: var(--accent);
 }
 
+.admin-sec.template-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.75rem 0;
+}
+
+.template-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+
+.template-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-hover));
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.template-label {
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 0.25rem;
+}
+
+.template-btn {
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.template-btn:hover {
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.template-btn:active {
+  transform: translateY(1px);
+}
+
+.template-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .admin-section form {
   display: flex;
   gap: 10px;

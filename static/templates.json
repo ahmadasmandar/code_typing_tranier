@@ -1,0 +1,46 @@
+{
+  "languages": [
+    {
+      "id": "c",
+      "label": "C",
+      "levels": [
+        {
+          "id": "beginner",
+          "label": "Beginner",
+          "snippet": "#include <stdio.h>\n\nint main(void) {\n    int sum = 0;\n    for (int i = 1; i <= 10; i++) {\n        sum += i;\n    }\n    printf(\"Sum: %d\\n\", sum);\n    return 0;\n}\n"
+        },
+        {
+          "id": "intermediate",
+          "label": "Intermediate",
+          "snippet": "#include <stdio.h>\n#include <string.h>\n\nvoid reverse(char *s) {\n    int n = strlen(s);\n    for (int i = 0, j = n - 1; i < j; i++, j--) {\n        char t = s[i]; s[i] = s[j]; s[j] = t;\n    }\n}\n\nint main(void) {\n    char buf[64] = \"Hello, World!\";\n    reverse(buf);\n    printf(\"%s\\n\", buf);\n    return 0;\n}\n"
+        },
+        {
+          "id": "advanced",
+          "label": "Advanced",
+          "snippet": "#include <stdio.h>\n#include <stdlib.h>\n\ntypedef struct Node {\n    int val;\n    struct Node *next;\n} Node;\n\nNode* push(Node* head, int v) {\n    Node* n = malloc(sizeof(Node));\n    n->val = v; n->next = head;\n    return n;\n}\n\nvoid print(Node* head){\n    for(Node* p=head; p; p=p->next) printf(\"%d \", p->val);\n    printf(\"\\n\");\n}\n\nvoid free_list(Node* head){\n    while(head){ Node* t=head; head=head->next; free(t);}\n}\n\nint main(void){\n    Node* head = NULL;\n    for(int i=0;i<5;i++) head = push(head, i*i);\n    print(head);\n    free_list(head);\n    return 0;\n}\n"
+        }
+      ]
+    },
+    {
+      "id": "python",
+      "label": "Python",
+      "levels": [
+        {
+          "id": "beginner",
+          "label": "Beginner",
+          "snippet": "total = 0\nfor i in range(1, 11):\n    total += i\nprint(f\"Sum: {total}\")\n"
+        },
+        {
+          "id": "intermediate",
+          "label": "Intermediate",
+          "snippet": "def reverse(s: str) -> str:\n    return s[::-1]\n\nprint(reverse(\"Hello, World!\"))\n"
+        },
+        {
+          "id": "advanced",
+          "label": "Advanced",
+          "snippet": "from dataclasses import dataclass\nfrom typing import Optional\n\n@dataclass\nclass Node:\n    val: int\n    next: Optional['Node'] = None\n\ndef push(head: Optional[Node], v: int) -> Node:\n    return Node(v, head)\n\n\ndef print_list(head: Optional[Node]) -> None:\n    p = head\n    out = []\n    while p:\n        out.append(str(p.val))\n        p = p.next\n    print(\" \".join(out))\n\nhead = None\nfor i in range(5):\n    head = push(head, i*i)\nprint_list(head)\n"
+        }
+      ]
+    }
+  ]
+}
