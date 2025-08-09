@@ -40,7 +40,7 @@ Built with **Flask**, vanilla **JavaScript**, and lightweight CSS for a dark the
 
 ## Folder Structure
 
-```
+```text
 code_typing_trainer/
 │
 ├── app.py                  # Flask backend
@@ -81,8 +81,17 @@ python app.py
 
 The server runs on **http://127.0.0.1:5000** (port configurable in `app.py`).
 
-Note: `requirements.txt` in this repo contains a legacy, broad dependency set for historical experiments. 
+Note: `requirements.txt` in this repo contains a legacy, broad dependency set for historical experiments.
 For this app, use the minimal file `requirements-min.txt`.
+
+### Windows portable EXE (no Python needed)
+
+If you downloaded `code_web_trainer.zip` from the Releases page (v1.0 or later):
+
+1. Extract the zip anywhere (e.g., `Downloads/Code_web_trainer/`).
+2. Run `code_web_trainer.exe`.
+3. Your default browser should open at `http://127.0.0.1:5000/`.
+4. To stop, close the app window. No installation required.
 
 ---
 
@@ -169,6 +178,32 @@ Alternatively, self‑host Prism assets in `static/` and avoid CDN entirely.
 3. Commit & push, then open a PR.
 
 ---
+
+## Publishing a GitHub Release (step‑by‑step)
+
+### Using the GitHub web UI
+
+1. **Push changes** to `main` (or your release branch).
+2. (Optional) **Create a tag** locally: `git tag v1.0.1 && git push --tags`.
+3. **Build your artifact** (e.g., Windows EXE) and zip it as `code_web_trainer.zip`.
+4. On GitHub, go to your repo → **Releases** → **Draft a new release**.
+5. **Choose a tag** (select existing or type a new like `v1.0.1`), set target branch.
+6. Add a **Release title** (e.g., `v1.0.1`) and **Notes/Changelog**.
+7. **Upload assets**: drag `code_web_trainer.zip` (and optionally checksums) into the assets area.
+8. Click **Publish release**.
+
+### Using GitHub CLI (optional)
+
+```bash
+# Install GitHub CLI first: https://cli.github.com/
+# Login once
+gh auth login
+
+# Create release with asset (from repo root)
+gh release create v1.0.1 code_web_trainer.zip \
+  --title "v1.0.1" \
+  --notes "Changelog: fixes, UI polish, SRI, upload hardening"
+```
 
 ## License
 
