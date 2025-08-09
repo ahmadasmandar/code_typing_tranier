@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const liveWpmElem = document.getElementById('liveWpm');  // Element for displaying live WPM
   const progressBar = document.getElementById('progressBar'); // Progress indicator
   const summaryModal = document.getElementById('summaryModal'); // Results modal
+  const themeToggle = document.getElementById('themeToggle'); // Theme toggle button
 
   // State variables
   let code = '',              // The code to be typed
@@ -38,6 +39,54 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // --- Theme toggle (light/dark) ---
+  const THEME_KEY = 'ctt.theme';
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.setAttribute('data-theme', 'light');
+    } else {
+      root.removeAttribute('data-theme'); // dark is default
+    }
+  }
+
+  function updateThemeToggleIcon(theme) {
+    if (!themeToggle) return;
+    const icon = themeToggle.querySelector('i');
+    if (!icon) return;
+    // show moon in dark (click to go light), sun in light (click to go dark)
+    if (theme === 'light') {
+      icon.classList.remove('fa-moon');
+      icon.classList.add('fa-sun');
+      themeToggle.title = 'Switch to dark mode';
+    } else {
+      icon.classList.remove('fa-sun');
+      icon.classList.add('fa-moon');
+      themeToggle.title = 'Switch to light mode';
+    }
+  }
+
+  (function initTheme() {
+    let theme = localStorage.getItem(THEME_KEY);
+    if (!theme) {
+      // system preference fallback
+      const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      theme = prefersLight ? 'light' : 'dark';
+    }
+    applyTheme(theme);
+    updateThemeToggleIcon(theme);
+  })();
+
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const next = isLight ? 'dark' : 'light';
+      applyTheme(next);
+      localStorage.setItem(THEME_KEY, next);
+      updateThemeToggleIcon(next);
+    });
+  }
 
   // Simple code templates by language/level (fallback if JSON not found)
   const CODE_TEMPLATES = {

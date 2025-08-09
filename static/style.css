@@ -2,10 +2,31 @@
   --bg: #121212;
   --panel-bg: #1e1e2e;
   --panel-bg2: #2a2e3f;
-  --text: #e0e0e0;
+  --text: #f1f5f9;
   --accent: #28a745;
   --cursor: #FFEB3B; /* Yellow cursor color */
   --error: #FF204E;
+  --border: #2c2f3a;
+  --panel: #1f2432;
+  --panel-hover: #232a3a;
+  --muted: #9aa6b2;
+  --text-secondary: #c7cbd4;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --panel-bg: #ffffff;
+  --panel-bg2: #ffffff; /* increase contrast in code areas */
+  --text: #0f172a;      /* darker text for readability */
+  --accent: #2563eb;
+  --cursor: #dc2626;
+  --error: #b91c1c;
+  --border: #cbd5e1;    /* slightly darker border for definition */
+  --panel: #ffffff;
+  --panel-hover: #f8fafc;
+  --muted: #475569;
+  --text-secondary: #334155;
 }
 
 * {
@@ -378,6 +399,14 @@ body {
   font-size: 14px;
 }
 
+/* Code font for code areas */
+textarea#codeInput,
+pre#codeDisplay,
+code, kbd, samp {
+  font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-ligatures: contextual;
+}
+
 /* Container using percentage of viewport height */
 .container {
   height: 70vh;
@@ -402,6 +431,33 @@ body {
   margin-bottom: 15px;
   font-size: 1.5rem;
 }
+
+/* Header actions */
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background: var(--panel-hover);
+}
+
+/* Dim skipped comment characters */
+.commentSkip { opacity: 0.5; }
 
 .chart-container {
   background: var(--panel-bg);
@@ -437,7 +493,7 @@ textarea {
   flex: 1;
   background: var(--panel-bg2);
   color: var(--text);
-  border: 1px solid #444;
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px;
   font-size: 0.9rem;
@@ -457,7 +513,7 @@ textarea {
 }
 
 .about-link {
-  color: var(--bg);
+  color: #ffffff;
   background-color: var(--accent);
   text-decoration: none;
   font-size: 0.9rem;
@@ -481,7 +537,7 @@ textarea {
 
 .btn-row button {
   background: var(--accent);
-  color: var(--bg);
+  color: #ffffff;
   border: none;
   padding: 8px 16px;
   margin-right: 8px;
@@ -515,7 +571,7 @@ textarea {
 pre#codeDisplay {
   flex: 1;
   background: var(--panel-bg2);
-  border: 1px solid #444;
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px;
   font-size: 0.9rem;
