@@ -332,15 +332,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /**
    * Plays a short beep sound for error feedback
-   * Uses Web Audio API to generate a 440Hz tone for 100ms
+   * Uses Web Audio API to generate a soft two-note tone with a short fade
    */
   function beep() {
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    osc.frequency.value = 440;  // A4 note frequency
-    osc.connect(audioCtx.destination);
-    osc.start();
-    setTimeout(() => osc.stop(), 100);  // 100ms duration
+    const now = audioCtx.currentTime;
+
+    // Master gain with tiny attack and quick decay to avoid clicks
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.06, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
+    gain.connect(audioCtx.destination);
+
+    // First note
+    const osc1 = audioCtx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(660, now); // E5
+    osc1.connect(gain);
+    osc1.start(now);
+    osc1.stop(now + 0.12);
+
+    // Second note (slightly lower), starts shortly after
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(550, now + 0.08); // C#5
+    osc2.connect(gain);
+    osc2.start(now + 0.08);
+    osc2.stop(now + 0.22);
+
+    // Cleanup
+    osc2.onended = () => {
+      try { osc1.disconnect(); } catch(e){}
+      try { osc2.disconnect(); } catch(e){}
+      try { gain.disconnect(); } catch(e){}
+    };
   }
 
   /**
