@@ -18,7 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const stopBtn = document.getElementById('stopBtn');      // Button to stop the test
   const codeDisplay = document.getElementById('codeDisplay'); // Container for displaying code to type
   const typingTest = document.getElementById('typingTest'); // Test container
-  const codeSyntax = document.getElementById('codeSyntax'); // Prism background layer
+  const codeSyntax = document.getElementById('codeSyntax'); // Background syntax layer
+  const lineGutter = document.getElementById('lineGutter'); // Line numbers gutter
+  const toggleLineNumbers = document.getElementById('toggleLineNumbers');
+  const toggleSyntax = document.getElementById('toggleSyntax');
+  const toggleHighlightLine = document.getElementById('toggleHighlightLine');
   const dateElem = document.getElementById('date');        // Element for displaying current date
   const timerElem = document.getElementById('timer');      // Element for displaying elapsed time
   const liveWpmElem = document.getElementById('liveWpm');  // Element for displaying live WPM
@@ -37,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
       timerInterval = null;  // Timer interval reference
   let chart = null;          // Chart.js instance for WPM history
   let spansCache = [];       // Cached list of spans for performance
+  let lineStarts = [];       // Start indices of each visual line (for gutter and highlighting)
+  let prismLoading = false;  // Whether Prism is being loaded
   
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -207,21 +213,87 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'none';
   }
 
-  function renderSyntaxBackground(codeText, langId) {
-    if (!codeSyntax || !window.Prism) return;
-    const prismLang = mapToPrismLanguage(langId);
-    // ensure a <code> child for Prism autoloader
-    let codeEl = codeSyntax.querySelector('code');
-    if (!codeEl) {
-      codeEl = document.createElement('code');
-      codeSyntax.innerHTML = '';
-      codeSyntax.appendChild(codeEl);
+  function ensurePrismLoaded(callback) {
+    if (window.Prism) { callback && callback(); return; }
+    if (prismLoading) { 
+      const check = setInterval(()=>{ if (window.Prism) { clearInterval(check); callback && callback(); } }, 50);
+      return;
     }
+    prismLoading = true;
+    // Load Prism core and a few common languages
+    const core = document.createElement('script');
+    core.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-core.min.js';
+    core.onload = () => {
+      const clike = document.createElement('script'); clike.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-clike.min.js'; document.head.appendChild(clike);
+      const js = document.createElement('script'); js.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-javascript.min.js'; document.head.appendChild(js);
+      const py = document.createElement('script'); py.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js'; document.head.appendChild(py);
+      const c = document.createElement('script'); c.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-c.min.js'; document.head.appendChild(c);
+      const cpp = document.createElement('script'); cpp.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-cpp.min.js'; document.head.appendChild(cpp);
+      const vhdl = document.createElement('script'); vhdl.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-vhdl.min.js'; document.head.appendChild(vhdl);
+      // call callback after small delay to allow components to load
+      setTimeout(() => { callback && callback(); }, 300);
+    };
+    document.head.appendChild(core);
+  }
+
+  function ensurePrismCss() {
+    if (document.getElementById('prism-theme-css')) return;
+    const link = document.createElement('link');
+    link.id = 'prism-theme-css';
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-tomorrow.min.css';
+    document.head.appendChild(link);
+  }
+
+  function renderSyntaxBackground(codeText, langId) {
+    if (!codeSyntax) return;
+    // Clear if disabled
+    if (!toggleSyntax || !toggleSyntax.checked) {
+      codeSyntax.innerHTML = '';
+      return;
+    }
+    ensurePrismCss();
+    const prismLang = mapToPrismLanguage(langId);
+    let codeEl = codeSyntax.querySelector('code');
+    if (!codeEl) { codeEl = document.createElement('code'); codeSyntax.innerHTML=''; codeSyntax.appendChild(codeEl); }
     codeEl.className = `language-${prismLang}`;
     codeEl.textContent = codeText;
-    if (Prism.highlightElement) {
-      Prism.highlightElement(codeEl);
+    ensurePrismLoaded(() => {
+      if (window.Prism && window.Prism.highlightElement) {
+        window.Prism.highlightElement(codeEl);
+      }
+    });
+  }
+
+  function renderLineNumbersFromSpans() {
+    if (!lineGutter) return;
+    if (!toggleLineNumbers || !toggleLineNumbers.checked) {
+      lineGutter.classList.add('hidden');
+      document.documentElement.style.setProperty('--gutter', '0px');
+      return;
     }
+    // Build line starts based on <br> markers
+    lineStarts = [0];
+    spansCache.forEach((span, i) => {
+      if (span.innerHTML.includes('<br>') && i < spansCache.length - 1) {
+        lineStarts.push(i + 1);
+      }
+    });
+    const lines = lineStarts.length;
+    // Compose gutter HTML
+    const nums = new Array(lines).fill(0).map((_,i)=> (i+1).toString()).join('\n');
+    lineGutter.textContent = nums;
+    // Set gutter width based on digit count
+    const digits = String(lines).length;
+    const width = 10 + digits * 8; // rough px estimate per digit
+    lineGutter.classList.remove('hidden');
+    document.documentElement.style.setProperty('--gutter', width + 'px');
+  }
+
+  function syncScrollers() {
+    const st = codeDisplay.scrollTop;
+    if (codeSyntax) codeSyntax.scrollTop = st;
+    if (lineGutter && !lineGutter.classList.contains('hidden')) lineGutter.scrollTop = st;
   }
 
   function populateLanguageDropdown(map) {
@@ -385,9 +457,9 @@ document.addEventListener('DOMContentLoaded', () => {
     stopBtn.classList.remove('hidden');
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
-    // Render syntax background with Prism and sync scroll
+    // Render syntax background and setup scroll sync
     renderSyntaxBackground(code, templateLangSel ? templateLangSel.value : '');
-    codeDisplay.onscroll = () => { if (codeSyntax) codeSyntax.scrollTop = codeDisplay.scrollTop; };
+    codeDisplay.onscroll = syncScrollers;
     
     // Create spans for each character to enable individual styling (fast render)
     codeDisplay.innerHTML = '';
@@ -409,6 +481,10 @@ document.addEventListener('DOMContentLoaded', () => {
       frag.appendChild(span);
     }
     codeDisplay.appendChild(frag);
+    // Prepare line numbers
+    renderLineNumbersFromSpans();
+    // Ensure scroll sync immediately
+    syncScrollers();
     
     // Reset test state
     index = 0; 
@@ -475,7 +551,10 @@ document.addEventListener('DOMContentLoaded', () => {
     codeDisplay.innerHTML = '';
     const frag = document.createDocumentFragment();
     spansCache = [];
-    for (const c of code) {
+    const langId = templateLangSel ? templateLangSel.value : '';
+    const skipMask = buildSkipMaskForComments(code, langId);
+    for (let i=0; i<code.length; i++) {
+      const c = code[i];
       const span = document.createElement('span');
       span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
@@ -483,10 +562,14 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         span.textContent = c;
       }
+      if (skipMask[i]) { span.dataset.skip = '1'; span.classList.add('commentSkip'); }
       spansCache.push(span);
       frag.appendChild(span);
     }
     codeDisplay.appendChild(frag);
+    renderLineNumbersFromSpans();
+    renderSyntaxBackground(code, templateLangSel ? templateLangSel.value : '');
+    codeDisplay.onscroll = syncScrollers;
     
     // Reset test state
     index = 0; 
@@ -571,35 +654,31 @@ document.addEventListener('DOMContentLoaded', () => {
   function highlightActive() {
     const spans = spansCache;
     spans.forEach(s=>s.classList.remove('active'));
+    // clear previous line-active markers
+    spans.forEach(s=>s.classList.remove('line-active'));
     if (spans[index] && !spans[index].classList.contains('errorCursor')) {
       spans[index].classList.add('active');
       
       // Auto-scrolling functionality
       if (spans[index]) {
-        // Find the current line element (parent <br> or the pre itself)
-        let currentLine = spans[index];
-        let lineCount = 0;
-        let currentLineTop = 0;
-        
-        // Count lines and find the current line's position
         const allSpans = spansCache;
-        let lineStarts = [0]; // Track the start index of each line
-        
-        // Find all line breaks to determine line positions
-        allSpans.forEach((span, i) => {
-          if (span.innerHTML.includes('<br>') && i < allSpans.length - 1) {
-            lineStarts.push(i + 1);
-          }
-        });
-        
+        // ensure lineStarts is up to date
+        if (!lineStarts.length) {
+          lineStarts = [0];
+          allSpans.forEach((span, i) => {
+            if (span.innerHTML.includes('<br>') && i < allSpans.length - 1) lineStarts.push(i + 1);
+          });
+        }
         // Find which line our current index is on
         let currentLineIndex = 0;
         for (let i = 0; i < lineStarts.length; i++) {
-          if (index >= lineStarts[i]) {
-            currentLineIndex = i;
-          } else {
-            break;
-          }
+          if (index >= lineStarts[i]) currentLineIndex = i; else break;
+        }
+        // Apply current line highlight if enabled
+        if (!toggleHighlightLine || toggleHighlightLine.checked) {
+          const start = lineStarts[currentLineIndex];
+          const end = currentLineIndex+1 < lineStarts.length ? lineStarts[currentLineIndex+1] : allSpans.length;
+          for (let i=start; i<end; i++) allSpans[i].classList.add('line-active');
         }
         
         // If we're at least 3 lines down, scroll to keep current line and 2 lines above visible
@@ -613,6 +692,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     }
+  }
+
+  // Toggle handlers
+  if (toggleLineNumbers) {
+    toggleLineNumbers.addEventListener('change', () => {
+      renderLineNumbersFromSpans();
+      syncScrollers();
+    });
+  }
+  if (toggleSyntax) {
+    toggleSyntax.addEventListener('change', () => {
+      renderSyntaxBackground(code, templateLangSel ? templateLangSel.value : '');
+      syncScrollers();
+    });
+  }
+  if (toggleHighlightLine) {
+    toggleHighlightLine.addEventListener('change', () => {
+      highlightActive();
+    });
   }
 
   function finishTest() {

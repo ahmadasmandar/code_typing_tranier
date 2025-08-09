@@ -34,13 +34,22 @@
         <button id="startBtn">Start</button>
         <button id="stopBtn" class="hidden">Stop</button>
         <button id="restartBtn" class="hidden">Restart</button>
+        <label style="margin-left:auto; display:flex; align-items:center; gap:8px; font-size:0.85rem;">
+          <input type="checkbox" id="toggleLineNumbers"> Ln
+          <input type="checkbox" id="toggleSyntax"> Syntax
+          <input type="checkbox" id="toggleHighlightLine" checked> Line
+        </label>
       </div>
 
       <!-- Single input area that transforms -->
       <div class="input-container">
         <textarea id="codeInput" placeholder="Enter your code here to practice..." rows="12"></textarea>
         <div id="typingTest" class="hidden">
-          <pre id="codeDisplay" tabindex="0"></pre>
+          <div id="codeContainer" class="code-container">
+            <div id="lineGutter" class="line-gutter hidden" aria-hidden="true"></div>
+            <pre id="codeSyntax" class="code-syntax" aria-hidden="true"></pre>
+            <pre id="codeDisplay" tabindex="0"></pre>
+          </div>
           <div class="progress-container"><div id="progressBar"></div></div>
         </div>
       </div>

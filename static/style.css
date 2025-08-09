@@ -613,6 +613,74 @@ pre#codeDisplay.typing-mode {
   color: var(--bg);
 }
 
+/* Layered code container (syntax behind spans) */
+.code-container {
+  position: relative;
+  display: block;
+  min-height: 240px;
+}
+
+.line-gutter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--gutter, 0);
+  background: var(--panel-bg);
+  color: var(--muted, #9aa0a6);
+  border-right: 1px solid var(--border);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: right;
+  padding: 10px 6px 10px 4px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.line-gutter.hidden { display: none; }
+
+.code-syntax,
+pre#codeDisplay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 10px 10px 10px calc(var(--gutter, 0) + 12px);
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+.code-syntax {
+  background: transparent;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 1;
+}
+
+pre#codeDisplay {
+  background: transparent;
+  z-index: 2;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Improved caret/active span styling */
+pre#codeDisplay span.active:not(.errorCursor) {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 2px;
+}
+
+/* Current line highlight (applied to spans in the active line) */
+pre#codeDisplay span.line-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Dim skipped comment regions consistently */
+.commentSkip { opacity: 0.5; }
+
 /* Right panel */
 .right-panel {
   background: var(--panel-bg);
