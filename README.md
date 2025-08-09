@@ -1,8 +1,23 @@
-
 # Code Typing Trainer
 
 A web‑based typing trainer focused on practicing **programming code** rather than plain text.  
 Built with **Flask**, vanilla **JavaScript**, and lightweight CSS for a dark theme with a yellow accent.
+
+---
+
+## What’s New (2025)
+
+- **Filesystem templates** under `templates/<language>/` with dynamic picker (`/api/templates`).
+- **STM32/HAL C** samples extended to 16 files; each function is its own template. `templates/stm32/`
+- **VHDL** pack with 10+ practical templates. `templates/vhdl/`
+- **Comment skipping**: comments are preserved in templates but skipped during typing (frontend).
+- **Modern typing UI**:
+  - Optional line numbers (Ln), current line highlight (Line), and a non‑invasive syntax background (Syntax).
+  - Classic yellow block for the active character.
+  - Smooth scrolling keeps context lines visible.
+  - Skipped comment regions are dimmed consistently.
+- **Toggle persistence**: Ln/Syntax/Line states are saved in `localStorage` per browser.
+- **Portable browser support**: prefers `Chromium/chrome.exe` or `Firefox/FirefoxPortable.exe` if present.
 
 ![Code Typing Trainer Screenshot](static/screenshot.png)
 
@@ -42,6 +57,11 @@ code_typing_trainer/
     ├── fav.ico             # Favicon
     └── uploads/            # Profile image storage
         └── .gitkeep        # Placeholder for directory structure
+└── templates/
+    ├── c/                 # C examples
+    ├── python/            # Python examples
+    ├── stm32/             # STM32/HAL C templates
+    └── vhdl/              # VHDL templates
 ```
 
 ---
@@ -52,8 +72,8 @@ code_typing_trainer/
 # 1. Extract project
 cd code_typing_trainer
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install dependencies (minimal)
+pip install -r requirements-min.txt
 
 # 3. Launch (auto‑opens browser)
 python app.py
@@ -61,12 +81,15 @@ python app.py
 
 The server runs on **http://127.0.0.1:5000** (port configurable in `app.py`).
 
+Note: `requirements.txt` in this repo contains a legacy, broad dependency set for historical experiments. 
+For this app, use the minimal file `requirements-min.txt`.
+
 ---
 
 ## Usage
 
 1. Paste or type the code you want to practice in the textarea.  
-2. Click **Start**. The textarea hides, the code appears with a yellow cursor and increased font size.  
+2. Click **Start**. The textarea hides, the code appears with a yellow block cursor and increased font size.  
 3. Type. On mistakes the current char turns red and a beep sounds (optional).  
 4. Press **Stop** any time or type to the end to finish.  
 5. A summary modal shows results; press **Enter** or **Close** to dismiss.  
@@ -80,8 +103,9 @@ The server runs on **http://127.0.0.1:5000** (port configurable in `app.py`).
 | File | Purpose |
 |---|---|
 | `train_settings.json` | Auto‑created; stores an array `history[]` with recent results *(timestamp, wpm, errors, backspaces)*. |
-| `app.py`              | `SETTINGS_FILE` path, browser auto‑open logic, history retention (`history[-30:]`). |
-| `static/script.js`    | Key bindings, sound toggle (`beep()`), and live calculations. |
+| `app.py`              | `SETTINGS_FILE` path, browser auto‑open logic, history retention, APIs. |
+| `static/script.js`    | Key bindings, sound toggle (`beep()`), toggles, syntax background, and live calculations. |
+| `requirements-min.txt`| Minimal dependencies for this app. |
 
 ---
 
@@ -91,6 +115,50 @@ The server runs on **http://127.0.0.1:5000** (port configurable in `app.py`).
 * **Sound** – comment out or adjust `beep()` in `static/script.js`.  
 * **History limit** – change `history[-30:]` slice in `app.py`.  
 * **Port** – change `app.run(debug=True)` in `app.py`.  
+
+### UI Toggles
+
+The control row includes three toggles:
+
+- **Ln**: show/hide line numbers in the gutter.
+- **Syntax**: enable a passive Prism.js background layer behind the spans.
+- **Line**: highlight the current line.  
+
+Your toggle choices are persisted in `localStorage` and restored on reload.
+
+### Prism.js & Security (SRI)
+
+- Prism resources are loaded lazily when the **Syntax** toggle is on.
+- We include `crossorigin="anonymous"` and `referrerpolicy="no-referrer"` on dynamic includes.
+- You can optionally enable Subresource Integrity (SRI) by filling the hashes in `static/script.js` under `PRISM_SRI`:
+
+```js
+const PRISM_SRI = {
+  core: '',
+  clike: '',
+  c: '',
+  python: '',
+  markup: '',
+  themeTomorrow: ''
+};
+```
+
+How to compute SRI (example):
+
+```bash
+# Download file and compute SHA384 base64
+curl -sL https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js | \
+  openssl dgst -sha384 -binary | openssl base64 -A
+# Prefix with 'sha384-' and paste into PRISM_SRI.core
+```
+
+Alternatively, self‑host Prism assets in `static/` and avoid CDN entirely.
+
+### Template Upload (Admin)
+
+- Endpoint: `POST /api/upload_template` (localhost only).
+- Fields: `language` (folder name), `file` (the code file).
+- Language is strictly validated: only letters, digits, `-`, `_` (1–30 chars). File name is sanitized via `werkzeug.utils.secure_filename`.
 
 ---
 

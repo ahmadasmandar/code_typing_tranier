@@ -93,6 +93,48 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem(THEME_KEY, next);
       updateThemeToggleIcon(next);
     });
+
+  // --- Persist toggle preferences in localStorage ---
+  const LS_KEYS = {
+    lineNumbers: 'tt_toggle_line_numbers',
+    syntaxBg: 'tt_toggle_syntax_bg',
+    highlightLine: 'tt_toggle_highlight_line'
+  };
+
+  function restoreToggles() {
+    if (toggleLineNumbers) {
+      const v = localStorage.getItem(LS_KEYS.lineNumbers);
+      if (v !== null) toggleLineNumbers.checked = v === '1';
+    }
+    if (toggleSyntax) {
+      const v = localStorage.getItem(LS_KEYS.syntaxBg);
+      if (v !== null) toggleSyntax.checked = v === '1';
+    }
+    if (toggleHighlightLine) {
+      const v = localStorage.getItem(LS_KEYS.highlightLine);
+      if (v !== null) toggleHighlightLine.checked = v === '1';
+    }
+  }
+
+  function wireTogglePersistence() {
+    if (toggleLineNumbers) toggleLineNumbers.addEventListener('change', () => {
+      localStorage.setItem(LS_KEYS.lineNumbers, toggleLineNumbers.checked ? '1' : '0');
+      renderLineNumbersFromSpans();
+    });
+    if (toggleSyntax) toggleSyntax.addEventListener('change', () => {
+      localStorage.setItem(LS_KEYS.syntaxBg, toggleSyntax.checked ? '1' : '0');
+      renderSyntaxBackground(code || '', templateLangSel ? templateLangSel.value : '');
+    });
+    if (toggleHighlightLine) toggleHighlightLine.addEventListener('change', () => {
+      localStorage.setItem(LS_KEYS.highlightLine, toggleHighlightLine.checked ? '1' : '0');
+      highlightActive();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    restoreToggles();
+    wireTogglePersistence();
+  });
   }
 
   // Simple code templates by language/level (fallback if JSON not found)
@@ -222,16 +264,22 @@ document.addEventListener('DOMContentLoaded', () => {
     prismLoading = true;
     // Load Prism core and a few common languages
     const core = document.createElement('script');
-    core.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-core.min.js';
+    core.src = 'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js';
+    core.crossOrigin = 'anonymous';
+    core.referrerPolicy = 'no-referrer';
+    if (PRISM_SRI.core) core.integrity = PRISM_SRI.core;
     core.onload = () => {
-      const clike = document.createElement('script'); clike.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-clike.min.js'; document.head.appendChild(clike);
-      const js = document.createElement('script'); js.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-javascript.min.js'; document.head.appendChild(js);
-      const py = document.createElement('script'); py.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js'; document.head.appendChild(py);
-      const c = document.createElement('script'); c.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-c.min.js'; document.head.appendChild(c);
-      const cpp = document.createElement('script'); cpp.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-cpp.min.js'; document.head.appendChild(cpp);
-      const vhdl = document.createElement('script'); vhdl.src = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-vhdl.min.js'; document.head.appendChild(vhdl);
-      // call callback after small delay to allow components to load
-      setTimeout(() => { callback && callback(); }, 300);
+      const langs = ['clike', 'c', 'python', 'markup'];
+      let loaded = 0;
+      langs.forEach(l => {
+        const s = document.createElement('script');
+        s.src = `https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-${l}.min.js`;
+        s.crossOrigin = 'anonymous';
+        s.referrerPolicy = 'no-referrer';
+        if (PRISM_SRI[l]) s.integrity = PRISM_SRI[l];
+        s.onload = () => { loaded++; if (loaded === langs.length) { callback && callback(); } };
+        document.head.appendChild(s);
+      });
     };
     document.head.appendChild(core);
   }
@@ -241,7 +289,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const link = document.createElement('link');
     link.id = 'prism-theme-css';
     link.rel = 'stylesheet';
-    link.href = 'https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-tomorrow.min.css';
+    link.href = 'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css';
+    link.crossOrigin = 'anonymous';
+    link.referrerPolicy = 'no-referrer';
+    if (PRISM_SRI.themeTomorrow) link.integrity = PRISM_SRI.themeTomorrow;
     document.head.appendChild(link);
   }
 

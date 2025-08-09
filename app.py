@@ -400,7 +400,10 @@ def api_upload_template():
         return jsonify({"error": "missing language or file"}), 400
 
     # Sanitize language and filename
-    safe_lang = secure_filename(language)
+    safe_lang = secure_filename(language).lower()
+    # Strictly validate language folder name: allow only letters, digits, dash and underscore
+    if not re.fullmatch(r"[a-z0-9_-]{1,30}", safe_lang or ""):
+        return jsonify({"error": "invalid language name"}), 400
     safe_name = secure_filename(upfile.filename)
     lang_dir = os.path.join(CODE_TEMPLATES_DIR, safe_lang)
     os.makedirs(lang_dir, exist_ok=True)
@@ -411,29 +414,6 @@ def api_upload_template():
         return jsonify({"error": f"failed to save file: {e}"}), 500
 
     return jsonify({"status": "ok", "path": f"templates/{safe_lang}/{safe_name}"})
-
-    if 'profile_image' not in request.files:
-        return redirect(url_for('about'))
-
-    file = request.files['profile_image']
-
-    if file.filename == '':
-        return redirect(url_for('about'))
-
-    if file and allowed_file(file.filename):
-        # Create a secure filename to prevent security issues
-        filename = 'profile.' + file.filename.rsplit('.', 1)[1].lower()
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-
-        # Save the file
-        file.save(file_path)
-
-        # Update settings
-        settings = load_settings()
-        settings['profile_image'] = filename
-        save_settings(settings)
-
-    return redirect(url_for('about'))
 
 
 def resolve_browser_path(browser_choice: str):
