@@ -25,6 +25,7 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
+import re
 
 # Third-party imports
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
@@ -62,6 +63,8 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Base directory for on-disk code templates (organized as templates/<language>/*.ext)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CODE_TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
+# Optional STM32 HAL project-style source directory to scan as its own language
+CORE_SRC_DIR = os.path.join(BASE_DIR, 'Core', 'Src')
 
 
 def load_settings():
@@ -278,6 +281,49 @@ def _read_text_file(path: str) -> str:
         return ''
 
 
+def _strip_comments(lang: str, fname: str, code: str) -> str:
+    """
+    Remove comments from code for typing practice. Heuristics per language:
+    - C/C++/Java/JS/TS/Go: remove /* ... */ and // ... end-of-line
+    - Python: remove triple-quoted blocks (docstrings) and # ... end-of-line
+    - VHDL: remove -- ... end-of-line
+    - HTML: remove <!-- ... -->
+    Falls back to returning original code on regex errors.
+    """
+    try:
+        ext = os.path.splitext(fname)[1].lower()
+        text = code
+
+        def strip_c_like(txt: str) -> str:
+            txt = re.sub(r"/\*.*?\*/", "", txt, flags=re.DOTALL)
+            txt = re.sub(r"//.*?$", "", txt, flags=re.MULTILINE)
+            return txt
+
+        if ext in {'.c', '.h', '.hpp', '.cpp', '.cc', '.java', '.js', '.ts', '.go'} or lang in {'c', 'cpp', 'java', 'javascript', 'typescript', 'go', 'stm32'}:
+            text = strip_c_like(text)
+        elif ext == '.py' or lang == 'python':
+            # Triple-quoted strings (often used as comments/docstrings)
+            text = re.sub(r"'''[\s\S]*?'''", "", text)
+            text = re.sub(r'"""[\s\S]*?"""', "", text)
+            text = re.sub(r"#.*?$", "", text, flags=re.MULTILINE)
+        elif ext in {'.vhd', '.vhdl'} or lang == 'vhdl':
+            text = re.sub(r"--.*?$", "", text, flags=re.MULTILINE)
+        elif ext in {'.html', '.htm'} or lang in {'html'}:
+            text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+        else:
+            # Reasonable default: try C-like then Python hashes
+            after = strip_c_like(text)
+            after = re.sub(r"#.*?$", "", after, flags=re.MULTILINE)
+            text = after
+
+        # Normalize multiple blank lines created by stripping
+        lines = [ln.rstrip() for ln in text.splitlines()]
+        # Remove lines that are empty after stripping trailing spaces
+        return "\n".join(ln for ln in lines)
+    except Exception:
+        return code
+
+
 def scan_code_templates():
     """
     Scan templates directory for language subfolders and files.
@@ -316,6 +362,8 @@ def scan_code_templates():
                 "name": entry,
                 "levels": [{"level": "files", "snippets": snippets}]
             })
+        
+        # Note: intentionally ignoring Core/Src; Core is reserved for local generation only
     except Exception as e:
         print(f"Error scanning templates dir {CODE_TEMPLATES_DIR}: {e}")
     return result

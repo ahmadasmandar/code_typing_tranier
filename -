@@ -1,0 +1,277 @@
+/**
+ ******************************************************************************
+ * @file           : help_functions.c
+ * @brief          : Utility and helper functions implementation
+ * @author         : Ahmad Asmandar
+ * @company        : Kompass GmbH
+ * @date           : 01.08.2025
+ ******************************************************************************
+ * @description
+ *   This file contains utility and helper functions that support the main
+ *   NLPT motion control system. These functions provide common functionality
+ *   for string processing, data conversion, formatting, and other non-critical
+ *   operations that can be modularized from the main control logic.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
+
+/* Includes ------------------------------------------------------------------*/
+#include "help_functions.h"
+
+/* Private typedef -----------------------------------------------------------*/
+
+/* Private define ------------------------------------------------------------*/
+
+/* Private macro -------------------------------------------------------------*/
+
+/* Private variables ---------------------------------------------------------*/
+
+/* Private function prototypes -----------------------------------------------*/
+
+/* Private user code ---------------------------------------------------------*/
+
+/* Exported functions --------------------------------------------------------*/
+/**
+ * @brief  Strip a 'T' if it appears immediately after the '>' in a command.
+ *         All characters after the 'T' are shifted left one byte.
+ *
+ * @param buf  Null-terminated command buffer, e.g. ">TMA090.000#"
+ */
+void strip_T_after_chevron(char *buf)
+{
+    // If buffer is at least 3 chars and buf[0]=='>' and buf[1]=='T', remove that 'T'
+    if (buf[0] == '>' && buf[1] == 'T') {
+        // Compute length of the tail starting at buf[2], including '\0'
+        size_t tail_len = strlen(buf + 2) + 1;
+        // Shift everything from buf[2] back to buf[1]
+        memmove(&buf[1], &buf[2], tail_len);
+        // Now buf reads ">MA090.000#"
+    }
+}
+
+/**
+ * @brief  Clean up incoming command:
+ *         1) Remove any leading '\r' or '\n'
+ *         2) If it now ends in "Z#", prepend '>' if not already there
+ *
+ * @param cmd      Null-terminated command buffer
+ * @param buf_size Size of the cmd buffer
+ */
+void sanitize_command(char *cmd, size_t buf_size)
+{
+    // 1) Trim leading CR/LF
+    size_t skip = strspn(cmd, "\r\n");
+    if (skip) {
+        // Shift left over the skipped characters (including terminator)
+        memmove(cmd, cmd + skip, strlen(cmd + skip) + 1);
+    }
+
+    // 2) Now check for Z-axis at the end
+    size_t len = strnlen(cmd, buf_size);
+    if (len >= 2 && cmd[len - 1] == '#' && cmd[len - 2] == 'Z' && cmd[0] != '>') {
+        // Make room for '>' at front
+        if (len + 1 < buf_size) {
+            memmove(cmd + 1, cmd, len + 1);  // include '\0'
+            cmd[0] = '>';
+        }
+    }
+}
+
+/* ------------------------------------------
+ * Time formatting function
+ * ------------------------------------------ */
+void Print_Time()
+{
+    DS_TIME new_get_time;
+    char time_buffer[50];
+    DS3231_get(&new_get_time);
+    snprintf(time_buffer, sizeof(time_buffer), "D:%02u%02u%02u_%02u%02u%02u;", new_get_time.hour, new_get_time.min,
+             new_get_time.sec, new_get_time.mday, new_get_time.mon, new_get_time.year);
+    HAL_UART_Transmit_DMA(&huart2, (uint8_t *)time_buffer, strlen(time_buffer));
+}
+
+/**
+ * @brief Precise microsecond delay using timer
+ * @param microseconds Number of microseconds to delay
+ */
+
+void delay_us(uint16_t microseconds)
+{
+    uint16_t startTick = __HAL_TIM_GET_COUNTER(&htim9);
+    uint16_t endTick   = (uint16_t)(startTick + microseconds) % (htim9.Init.Period + 1); /* Handle overflow */
+
+    if (endTick < startTick) { /* Handle timer wraparound */
+        while (__HAL_TIM_GET_COUNTER(&htim9) >= startTick) {
+            /* Wait for counter to wrap around */
+        }
+    }
+    while (__HAL_TIM_GET_COUNTER(&htim9) < endTick) {
+        /* Wait until target tick is reached */
+    }
+}
+
+/* ------------------------------------------
+ * Temperature measurement and JSON formatting
+ * ------------------------------------------ */
+/*  Maps sensor ID numbers to temperature locations:
+ *  73 → "temp_system"
+ *  72 → "temp_drivers"
+ *  68 → "temp_motor_x"
+ *  66 → "temp_motor_y"
+ */
+void measure_temperatures(uint8_t num, char *json_out, size_t out_size, uint8_t temp_sens_counter,
+                          uint8_t *temp_addresses)
+{
+    // char output[24];
+    char json_output[156];
+    int offset = 0;
+
+    /* Format timestamp */
+    // DS3231_get();
+    // char time_buffer[50];
+    // snprintf(time_buffer,
+    //          sizeof(time_buffer),
+    //          "20%02u-%02u-%02uT%02u:%02u:%02uZ",
+    //          new_get_time.year,
+    //          new_get_time.mon,
+    //          new_get_time.mday,
+    //          new_get_time.hour,
+    //          new_get_time.min,
+    //          new_get_time.sec);
+
+    offset += snprintf(json_output + offset, sizeof(json_output) - offset, "{");
+
+    /* Read temperatures from all sensors */
+    for (uint8_t i = 0; i < num; ++i) {
+        for (uint8_t j = 0; j < temp_sens_counter; ++j) {
+            // float temperature;
+            /* Read temperature from sensor */
+            uint8_t addr = temp_addresses[j];
+            // uint8_t dummy;
+            float temperature = TMP1075_Get_Temperature_Celsius(addr);
+            static char id_str[4];
+
+            /* Map sensor address to meaningful name */
+            const char *key;
+            switch (addr) {
+                case 73:
+                    key = "temp_system";
+                    break;
+                case 72:
+                    key = "temp_drivers";
+                    break;
+                case 75:
+                    key = "temp_motor_x";
+                    break;
+                case 79:
+                    key = "temp_motor_y";
+                    break;
+                default: /* Use raw ID if unknown */
+                    snprintf(id_str, sizeof(id_str), "%u", addr);
+                    key = id_str;
+                    break;
+            }
+
+            /* Format temperature value */
+            char val_str[16];
+            print_number_or_float(&huart2,             /* UART pointer (ignored here) */
+                                  temperature,         /* Value to format */
+                                  "",                  /* No label */
+                                  3, 1,                /* Width=3, precision=1 */
+                                  "",                  /* No suffix */
+                                  val_str,             /* Destination buffer */
+                                  sizeof(val_str), 0); /* No UART print */
+
+            /* Add to JSON */
+            offset += snprintf(json_output + offset, sizeof(json_output) - offset, "\"%s\":%s,", key, val_str);
+
+            HAL_Delay(10);
+        }
+    }
+
+    /* Close JSON object */
+    snprintf(json_output + offset, sizeof(json_output) - offset, "}\r\n");
+
+    /* Copy to caller's buffer with safety */
+    strncpy(json_out, json_output, out_size - 1);
+    json_out[out_size - 1] = '\0';
+
+    HAL_UART_Transmit_DMA(&huart2, (uint8_t *)json_out, strlen(json_out));
+}
+
+/* ---------- Frame aus USART6 zerlegen ---------------------- */
+void parse_z_frame(const char *frame)
+{
+    RemoteState_t tmp = {0};
+
+    /* p – Position ------------------------------------------------ */
+    const char *tag = strstr(frame, "\"p\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        size_t n = 0;
+        while (*tag && *tag != ',' && *tag != '}' && n < sizeof tmp.position - 1)
+            tmp.position[n++] = *tag++;
+        tmp.position[n] = '\0';
+    }
+
+    /* r – Referenced --------------------------------------------- */
+    tag = strstr(frame, "\"r\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        tmp.referenced = (*tag == '1');
+    }
+
+    /* b – Busy ---------------------------------------------------- */
+    tag = strstr(frame, "\"b\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        tmp.busy = (*tag == '1');
+    }
+
+    /* o – Back-Switch -------------------------------------------- */
+    tag = strstr(frame, "\"o\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        tmp.back = (*tag == '1');
+    }
+
+    /* u – Front-Switch ------------------------------------------- */
+    tag = strstr(frame, "\"u\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        tmp.front = (*tag == '1');
+    }
+
+    /* v – Speed --------------------------------------------------- */
+    tag = strstr(frame, "\"v\":");
+    if (tag) {
+        tag += 3;
+        while (*tag == ' ' || *tag == ':')
+            ++tag;
+        tmp.speed = (uint8_t)strtoul(tag, NULL, 10);
+    }
+
+    /* atomar übernehmen ------------------------------------------ */
+    __disable_irq();
+    remoteState = tmp;
+    __enable_irq();
+}

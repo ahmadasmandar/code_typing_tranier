@@ -53,6 +53,91 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // --- Comment detection and skipping ---
+  function buildSkipMaskForComments(text, langId) {
+    const n = text.length;
+    const skip = new Array(n).fill(false);
+    const lang = (langId || '').toLowerCase();
+
+    function mark(i){ if (i>=0 && i<n) skip[i] = true; }
+
+    if (lang === 'c' || lang === 'stm32' || lang === 'cpp' || lang === 'javascript' || lang === 'typescript' || lang === 'java' || lang === 'go') {
+      // C-like: // line, /* block */, with string handling
+      let inBlock = false, inLine = false, inStr = false, strDelim = '';
+      for (let i=0; i<n; i++) {
+        const c = text[i], p = i>0 ? text[i-1] : '', nn = i+1<n ? text[i+1] : '';
+        if (inLine) {
+          mark(i);
+          if (c === '\n') { inLine = false; }
+          continue;
+        }
+        if (inBlock) {
+          mark(i);
+          if (p === '*' && c === '/') { /* end of block */ }
+          if (p === '*' && c === '/') { inBlock = false; }
+          continue;
+        }
+        if (inStr) {
+          if (c === strDelim && p !== '\\') { inStr = false; }
+          continue;
+        }
+        if (c === '"' || c === '\'') { inStr = true; strDelim = c; continue; }
+        if (c === '/' && nn === '/') { inLine = true; mark(i); mark(i+1); i++; continue; }
+        if (c === '/' && nn === '*') { inBlock = true; mark(i); mark(i+1); i++; continue; }
+      }
+    } else if (lang === 'python') {
+      // Python: # line, triple quotes and regular strings
+      let inLine = false, inStr = false, strDelim = '', triple = false;
+      for (let i=0; i<n; i++) {
+        const c = text[i], p = i>0 ? text[i-1] : '', nn = text.slice(i, i+3);
+        if (inLine) {
+          mark(i);
+          if (c === '\n') { inLine = false; }
+          continue;
+        }
+        if (inStr) {
+          if (triple) {
+            if (nn === strDelim.repeat(3)) { mark(i); mark(i+1); mark(i+2); i+=2; inStr=false; triple=false; }
+            else { mark(i); }
+          } else {
+            if (c === strDelim && p !== '\\') { inStr = false; } else { mark(i); }
+          }
+          continue;
+        }
+        if (c === '#') { inLine = true; mark(i); continue; }
+        if (nn === "'''" || nn === '"""') { inStr = true; triple = true; strDelim = nn[0]; mark(i); mark(i+1); mark(i+2); i+=2; continue; }
+        if (c === '"' || c === '\'') { inStr = true; strDelim = c; mark(i); continue; }
+      }
+    } else if (lang === 'vhdl') {
+      // VHDL: -- line, naive string handling for "..."
+      let inLine = false, inStr = false;
+      for (let i=0; i<n; i++) {
+        const c = text[i], nn = i+1<n ? text[i+1] : '';
+        if (inLine) { mark(i); if (c==='\n') inLine=false; continue; }
+        if (inStr) { if (c==='"') inStr=false; continue; }
+        if (c==='"') { inStr=true; continue; }
+        if (c==='-' && nn==='-') { inLine=true; mark(i); mark(i+1); i++; continue; }
+      }
+    } else if (lang === 'html') {
+      // HTML: <!-- ... -->
+      for (let i=0; i<n; i++) {
+        if (text.slice(i, i+4) === '<!--') {
+          mark(i); mark(i+1); mark(i+2); mark(i+3);
+          i+=4; while (i<n && text.slice(i, i+3) !== '-->') { mark(i); i++; }
+          if (i<n) { mark(i); mark(i+1); mark(i+2); }
+        }
+      }
+    }
+    return skip;
+  }
+
+  function advanceOverSkips(spans) {
+    while (index < spans.length && spans[index].dataset.skip === '1') {
+      spans[index].classList.add('correct');
+      index++;
+    }
+  }
+
   // Build dropdowns from JSON templates
   const templateLangSel = document.getElementById('templateLang');
   const templateLevelSel = document.getElementById('templateLevel');
@@ -200,7 +285,10 @@ document.addEventListener('DOMContentLoaded', () => {
     codeDisplay.innerHTML = '';
     const frag = document.createDocumentFragment();
     spansCache = [];
-    for (const c of code) {
+    const langId = templateLangSel ? templateLangSel.value : '';
+    const skipMask = buildSkipMaskForComments(code, langId);
+    for (let i=0; i<code.length; i++) {
+      const c = code[i];
       const span = document.createElement('span');
       span.dataset.char = c;  // Store original character for comparison
       if (c === '\n') {
@@ -208,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         span.textContent = c;
       }
+      if (skipMask[i]) { span.dataset.skip = '1'; span.classList.add('commentSkip'); }
       spansCache.push(span);
       frag.appendChild(span);
     }
@@ -226,7 +315,8 @@ document.addEventListener('DOMContentLoaded', () => {
     liveWpmElem.textContent = '0.0';
     progressBar.style.width = '0%';
     
-    // Set initial cursor position and focus
+    // Auto-skip initial skipped spans, then highlight
+    advanceOverSkips(spansCache);
     highlightActive();
     codeDisplay.focus();
   });
@@ -318,6 +408,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ignore.includes(e.key)) return;
     e.preventDefault();
     const spans = spansCache;
+    // Always advance over any skipped (comment) spans before processing input
+    advanceOverSkips(spans);
     if (!startedTyping) {
       startedTyping = true;
       startTime = Date.now();
@@ -350,14 +442,19 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     const current = spans[index]?.dataset.char;
-    if (e.key === ' ' && current===' ') {
+    // Skip any comment spans encountered at current position
+    advanceOverSkips(spans);
+    const current2 = spans[index]?.dataset.char;
+    if (e.key === ' ' && current2===' ') {
       while(index<spans.length && spans[index].dataset.char===' ') {
         spans[index].classList.add('correct');
         index++;
       }
-    } else if (e.key==='Enter' && current==='\n') { spans[index].classList.add('correct'); index++;
-    } else if (e.key.length===1 && e.key===current) { spans[index].classList.add('correct'); index++;
+    } else if (e.key==='Enter' && current2==='\n') { spans[index].classList.add('correct'); index++;
+    } else if (e.key.length===1 && e.key===current2) { spans[index].classList.add('correct'); index++;
     } else { spans[index].classList.add('errorCursor'); errorState=true; errorCount++; beep(); }
+    // After moving forward, skip any subsequent comment spans
+    advanceOverSkips(spans);
     progressBar.style.width=(index/spans.length*100)+'%';
     highlightActive();
     if (index===spans.length) finishTest();
