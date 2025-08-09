@@ -561,14 +561,6 @@ textarea {
   display: none;
 }
 
-/* Stacked code layers: Prism background + typing foreground */
-#codeLayer {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-}
-
-pre#codeSyntax,
 pre#codeDisplay {
   flex: 1;
   background: var(--panel-bg2);
@@ -586,19 +578,6 @@ pre#codeDisplay {
   line-height: 1.4;
   overflow-y: auto;
   min-height: 0;
-}
-
-pre#codeSyntax {
-  position: absolute;
-  inset: 0;
-  overflow: hidden; /* scroll only on display layer */
-  color: inherit;
-  pointer-events: none;
-}
-
-pre#codeDisplay {
-  position: relative;
-  background: transparent; /* show Prism underneath */
 }
 
 pre#codeDisplay.typing-mode {
