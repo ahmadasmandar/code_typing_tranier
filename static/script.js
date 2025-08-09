@@ -660,18 +660,33 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopTest() {
+    // If the user hasn't started typing, just perform a quick reset
+    if (!startedTyping) {
+      clearInterval(timerInterval);
+      typingTest.classList.add('hidden');
+      codeDisplay.classList.remove('typing-mode');
+      codeInput.style.display = 'block';
+      startBtn.style.display = 'inline-block';
+      stopBtn.classList.add('hidden');
+      restartBtn.style.display = 'inline-block';
+      progressBar.style.width = '0%';
+      timerElem.textContent = '0.0';
+      liveWpmElem.textContent = '0.0';
+      startedTyping = false;
+      errorState = false;
+      return;
+    }
+
+    // Show partial results up to now (without requiring completion)
     clearInterval(timerInterval);
-    typingTest.classList.add('hidden');
-    codeDisplay.classList.remove('typing-mode'); // Remove increased font size class
-    codeInput.style.display = 'block';
-    startBtn.style.display = 'inline-block';
-    stopBtn.classList.add('hidden');
-    restartBtn.style.display = 'inline-block';
-    progressBar.style.width = '0%';
-    timerElem.textContent = '0.0';
-    liveWpmElem.textContent = '0.0';
-    startedTyping = false;
-    errorState = false;
+    const elapsed = (Date.now() - startTime) / 1000;
+    const wpmVal = elapsed > 0 ? Math.round((index / 5) / (elapsed / 60)) : 0;
+    document.getElementById('modalWpm').textContent = wpmVal;
+    document.getElementById('modalErrors').textContent = errorCount;
+    document.getElementById('modalBackspaces').textContent = backspaceCount;
+    summaryModal.classList.add('show');
+
+    // Do NOT save or update chart/history on Stop; just show the modal preview
   }
 
   function closeModal() {
