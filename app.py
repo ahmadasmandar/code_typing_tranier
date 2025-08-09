@@ -16,6 +16,7 @@ import argparse
 # Standard library imports
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -25,7 +26,6 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
-import re
 
 # Third-party imports
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
@@ -299,7 +299,15 @@ def _strip_comments(lang: str, fname: str, code: str) -> str:
             txt = re.sub(r"//.*?$", "", txt, flags=re.MULTILINE)
             return txt
 
-        if ext in {'.c', '.h', '.hpp', '.cpp', '.cc', '.java', '.js', '.ts', '.go'} or lang in {'c', 'cpp', 'java', 'javascript', 'typescript', 'go', 'stm32'}:
+        if ext in {'.c', '.h', '.hpp', '.cpp', '.cc', '.java', '.js', '.ts', '.go'} or lang in {
+            'c',
+            'cpp',
+            'java',
+            'javascript',
+            'typescript',
+            'go',
+            'stm32',
+        }:
             text = strip_c_like(text)
         elif ext == '.py' or lang == 'python':
             # Triple-quoted strings (often used as comments/docstrings)
@@ -358,11 +366,8 @@ def scan_code_templates():
                         snippets.append({"title": fname, "code": code})
             except Exception as e:
                 print(f"Error scanning language folder {lang_path}: {e}")
-            result["languages"].append({
-                "name": entry,
-                "levels": [{"level": "files", "snippets": snippets}]
-            })
-        
+            result["languages"].append({"name": entry, "levels": [{"level": "files", "snippets": snippets}]})
+
         # Note: intentionally ignoring Core/Src; Core is reserved for local generation only
     except Exception as e:
         print(f"Error scanning templates dir {CODE_TEMPLATES_DIR}: {e}")

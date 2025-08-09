@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const stopBtn = document.getElementById('stopBtn');      // Button to stop the test
   const codeDisplay = document.getElementById('codeDisplay'); // Container for displaying code to type
   const typingTest = document.getElementById('typingTest'); // Test container
+  const codeSyntax = document.getElementById('codeSyntax'); // Prism background layer
   const dateElem = document.getElementById('date');        // Element for displaying current date
   const timerElem = document.getElementById('timer');      // Element for displaying elapsed time
   const liveWpmElem = document.getElementById('liveWpm');  // Element for displaying live WPM
@@ -194,6 +195,35 @@ document.addEventListener('DOMContentLoaded', () => {
   let TEMPLATE_MAP = null; // { langId: { levelId: snippet } }
   let TEMPLATE_LABELS = {}; // { langId: label }
 
+  function mapToPrismLanguage(langId) {
+    const l = (langId || '').toLowerCase();
+    if (l === 'stm32') return 'c';
+    if (l === 'js' || l === 'javascript' || l === 'typescript') return 'javascript';
+    if (l === 'py' || l === 'python') return 'python';
+    if (l === 'c++' || l === 'cpp') return 'cpp';
+    if (l === 'html') return 'markup';
+    if (l === 'vhdl') return 'vhdl';
+    if (l === 'c') return 'c';
+    return 'none';
+  }
+
+  function renderSyntaxBackground(codeText, langId) {
+    if (!codeSyntax || !window.Prism) return;
+    const prismLang = mapToPrismLanguage(langId);
+    // ensure a <code> child for Prism autoloader
+    let codeEl = codeSyntax.querySelector('code');
+    if (!codeEl) {
+      codeEl = document.createElement('code');
+      codeSyntax.innerHTML = '';
+      codeSyntax.appendChild(codeEl);
+    }
+    codeEl.className = `language-${prismLang}`;
+    codeEl.textContent = codeText;
+    if (Prism.highlightElement) {
+      Prism.highlightElement(codeEl);
+    }
+  }
+
   function populateLanguageDropdown(map) {
     if (!templateLangSel) return;
     templateLangSel.innerHTML = '';
@@ -329,6 +359,9 @@ document.addEventListener('DOMContentLoaded', () => {
     stopBtn.classList.remove('hidden');
     typingTest.classList.remove('hidden');
     codeDisplay.classList.add('typing-mode'); // Add class for increased font size
+    // Render syntax background with Prism and sync scroll
+    renderSyntaxBackground(code, templateLangSel ? templateLangSel.value : '');
+    codeDisplay.onscroll = () => { if (codeSyntax) codeSyntax.scrollTop = codeDisplay.scrollTop; };
     
     // Create spans for each character to enable individual styling (fast render)
     codeDisplay.innerHTML = '';

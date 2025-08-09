@@ -8,7 +8,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <!-- Pico.css classless for modern base styles -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css">
+  <!-- Custom styles should override framework defaults -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <!-- Prism syntax highlighting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism.min.css">
 </head>
 <body>
   <div class="container">
@@ -39,7 +44,10 @@
       <div class="input-container">
         <textarea id="codeInput" placeholder="Enter your code here to practice..." rows="12"></textarea>
         <div id="typingTest" class="hidden">
-          <pre id="codeDisplay" tabindex="0"></pre>
+          <div id="codeLayer">
+            <pre id="codeSyntax" class="language-none" aria-hidden="true"></pre>
+            <pre id="codeDisplay" tabindex="0"></pre>
+          </div>
           <div class="progress-container"><div id="progressBar"></div></div>
         </div>
       </div>
@@ -102,6 +110,13 @@
     const historyData = JSON.parse('{{ history|tojson|safe }}');
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/autoloader/prism-autoloader.min.js"></script>
+  <script>
+    if (window.Prism && Prism.plugins && Prism.plugins.autoloader) {
+      Prism.plugins.autoloader.languages_path = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/';
+    }
+  </script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
