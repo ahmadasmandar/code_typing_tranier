@@ -86,44 +86,84 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  async function loadTemplatesJSON() {
-    try {
-      const res = await fetch('static/templates.json', { cache: 'no-cache' });
-      if (!res.ok) throw new Error('Failed to load templates.json');
-      const data = await res.json();
-      // Convert JSON structure to the flat map used by renderer and capture labels
-      const map = {};
-      TEMPLATE_LABELS = {};
-      (data.languages || []).forEach(lang => {
-        const langId = lang.id;
-        if (!langId) return;
-        TEMPLATE_LABELS[langId] = lang.label || langId.toUpperCase();
-        map[langId] = map[langId] || {};
-        (lang.levels || []).forEach(lvl => {
-          if (lvl.id && typeof lvl.snippet === 'string') {
-            map[langId][lvl.id] = lvl.snippet;
+  function convertApiTemplatesToMap(apiData) {
+    // apiData: { languages: [ { name, levels: [ { level: 'files', snippets: [ { title, code } ] } ] } ] }
+    const map = {};
+    TEMPLATE_LABELS = {};
+    (apiData.languages || []).forEach(lang => {
+      const langId = lang.name;
+      if (!langId) return;
+      TEMPLATE_LABELS[langId] = langId.toUpperCase();
+      const filesLevel = (lang.levels || []).find(l => Array.isArray(l.snippets));
+      const levelsMap = {};
+      if (filesLevel) {
+        (filesLevel.snippets || []).forEach(sn => {
+          if (sn && typeof sn.title === 'string' && typeof sn.code === 'string') {
+            levelsMap[sn.title] = sn.code;
           }
         });
-      });
-      if (Object.keys(map).length) {
-        TEMPLATE_MAP = map;
-        populateLanguageDropdown(map);
-        const firstLang = Object.keys(map)[0];
-        populateLevelDropdown(map, firstLang);
-        return;
       }
-      // fallback if empty
-      TEMPLATE_MAP = CODE_TEMPLATES;
-      TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
-      populateLanguageDropdown(TEMPLATE_MAP);
-      populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
-    } catch (e) {
-      // Fallback to built-in templates if fetch/parse fails
-      TEMPLATE_MAP = CODE_TEMPLATES;
-      TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
-      populateLanguageDropdown(TEMPLATE_MAP);
-      populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
-    }
+      map[langId] = levelsMap;
+    });
+    return map;
+  }
+
+  function convertStaticJsonToMap(data) {
+    // static/templates.json format used previously
+    const map = {};
+    TEMPLATE_LABELS = {};
+    (data.languages || []).forEach(lang => {
+      const langId = lang.id;
+      if (!langId) return;
+      TEMPLATE_LABELS[langId] = lang.label || langId.toUpperCase();
+      map[langId] = map[langId] || {};
+      (lang.levels || []).forEach(lvl => {
+        if (lvl.id && typeof lvl.snippet === 'string') {
+          map[langId][lvl.id] = lvl.snippet;
+        }
+      });
+    });
+    return map;
+  }
+
+  async function loadTemplates() {
+    // 1) Try filesystem API
+    try {
+      const res = await fetch('/api/templates', { cache: 'no-cache' });
+      if (res.ok) {
+        const data = await res.json();
+        const map = convertApiTemplatesToMap(data);
+        if (Object.keys(map).length) {
+          TEMPLATE_MAP = map;
+          populateLanguageDropdown(map);
+          const firstLang = Object.keys(map)[0];
+          populateLevelDropdown(map, firstLang);
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 2) Fallback to static JSON file
+    try {
+      const res = await fetch('static/templates.json', { cache: 'no-cache' });
+      if (res.ok) {
+        const data = await res.json();
+        const map = convertStaticJsonToMap(data);
+        if (Object.keys(map).length) {
+          TEMPLATE_MAP = map;
+          populateLanguageDropdown(map);
+          const firstLang = Object.keys(map)[0];
+          populateLevelDropdown(map, firstLang);
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 3) Final fallback to built-in
+    TEMPLATE_MAP = CODE_TEMPLATES;
+    TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
+    populateLanguageDropdown(TEMPLATE_MAP);
+    populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
   }
 
   /**
@@ -213,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Initialize dynamic templates
-  loadTemplatesJSON();
+  loadTemplates();
 
   // Stop button click handler
   stopBtn.addEventListener('click', stopTest);

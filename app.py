@@ -28,6 +28,7 @@ from datetime import datetime
 
 # Third-party imports
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from werkzeug.utils import secure_filename
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -57,6 +58,10 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}  # Allowed image file extensi
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Base directory for on-disk code templates (organized as templates/<language>/*.ext)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CODE_TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 
 
 def load_settings():
@@ -261,6 +266,98 @@ def upload_image():
     # Simple admin check - you can implement a more secure method if needed
     if request.remote_addr != '127.0.0.1':
         return redirect(url_for('about'))
+
+
+def _read_text_file(path: str) -> str:
+    """Read a text file safely as UTF-8, ignoring errors."""
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Failed to read template file {path}: {e}")
+        return ''
+
+
+def scan_code_templates():
+    """
+    Scan templates directory for language subfolders and files.
+
+    Expected layout:
+      templates/<language>/*.ext
+
+    Returns structure compatible with the frontend picker:
+    {
+      "languages": [
+        {"name": "c", "levels": [{"level": "files", "snippets": [{"title": "main.c", "code": "..."}]}]},
+        ...
+      ]
+    }
+    """
+    result = {"languages": []}
+    if not os.path.isdir(CODE_TEMPLATES_DIR):
+        return result
+
+    try:
+        for entry in os.listdir(CODE_TEMPLATES_DIR):
+            lang_path = os.path.join(CODE_TEMPLATES_DIR, entry)
+            if not os.path.isdir(lang_path):
+                # ignore files at root like index.html/about.html
+                continue
+            snippets = []
+            try:
+                for fname in os.listdir(lang_path):
+                    fpath = os.path.join(lang_path, fname)
+                    if os.path.isfile(fpath):
+                        code = _read_text_file(fpath)
+                        snippets.append({"title": fname, "code": code})
+            except Exception as e:
+                print(f"Error scanning language folder {lang_path}: {e}")
+            result["languages"].append({
+                "name": entry,
+                "levels": [{"level": "files", "snippets": snippets}]
+            })
+    except Exception as e:
+        print(f"Error scanning templates dir {CODE_TEMPLATES_DIR}: {e}")
+    return result
+
+
+@app.route('/api/templates', methods=['GET'])
+def api_templates():
+    """Return discovered code templates from the filesystem."""
+    data = scan_code_templates()
+    return jsonify(data)
+
+
+@app.route('/api/upload_template', methods=['POST'])
+def api_upload_template():
+    """
+    Upload a code template file into templates/<language>/.
+
+    Form fields:
+      language: name of subfolder to store under (e.g., "c", "python").
+      file: the uploaded code file (e.g., main.c, main.py).
+    """
+    # Only allow local admin uploads similar to image upload policy
+    if request.remote_addr != '127.0.0.1':
+        return jsonify({"error": "not authorized"}), 403
+
+    language = request.form.get('language', '').strip()
+    upfile = request.files.get('file')
+    if not language or not upfile or upfile.filename == '':
+        return jsonify({"error": "missing language or file"}), 400
+
+    # Sanitize language and filename
+    safe_lang = secure_filename(language)
+    safe_name = secure_filename(upfile.filename)
+    lang_dir = os.path.join(CODE_TEMPLATES_DIR, safe_lang)
+    os.makedirs(lang_dir, exist_ok=True)
+    dest_path = os.path.join(lang_dir, safe_name)
+    try:
+        upfile.save(dest_path)
+    except Exception as e:
+        return jsonify({"error": f"failed to save file: {e}"}), 500
+
+    return jsonify({"status": "ok", "path": f"templates/{safe_lang}/{safe_name}"})
 
     if 'profile_image' not in request.files:
         return redirect(url_for('about'))
