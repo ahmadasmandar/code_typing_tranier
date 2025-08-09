@@ -609,8 +609,8 @@ pre#codeDisplay.typing-mode {
 }
 
 .active {
-  background: var(--cursor);
-  color: var(--bg);
+  background: #ffeb3b; /* Yellow block */
+  color: #1b1b1b;      /* Dark text for contrast */
 }
 
 /* Layered code container (syntax behind spans) */
@@ -666,12 +666,7 @@ pre#codeDisplay {
   border-radius: 4px;
 }
 
-/* Improved caret/active span styling */
-pre#codeDisplay span.active:not(.errorCursor) {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  border-radius: 2px;
-}
+/* Active char uses the classic highlighter via .active rule below */
 
 /* Current line highlight (applied to spans in the active line) */
 pre#codeDisplay span.line-active {
@@ -680,6 +675,12 @@ pre#codeDisplay span.line-active {
 
 /* Dim skipped comment regions consistently */
 .commentSkip { opacity: 0.5; }
+
+/* Ensure active yellow block is visible even when line-active is applied */
+pre#codeDisplay span.line-active.active {
+  background: #ffeb3b;
+  color: #1b1b1b;
+}
 
 /* Right panel */
 .right-panel {
