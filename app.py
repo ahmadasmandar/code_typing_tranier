@@ -11,18 +11,19 @@ Version: 1.0.0
 Date: 2025-06-22
 """
 
+import argparse
+
 # Standard library imports
 import json
 import os
 import secrets
-import threading
-import subprocess
-import argparse
 import shutil
+import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.request
-import tempfile
 from datetime import datetime
 
 # Third-party imports
@@ -32,10 +33,11 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, url
 class DateTimeEncoder(json.JSONEncoder):
     """
     Custom JSON encoder for datetime objects.
-    
+
     Extends the standard JSONEncoder to properly serialize datetime objects
     by converting them to string format (YYYY-MM-DD HH:MM).
     """
+
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.strftime('%Y-%m-%d %H:%M')
@@ -60,9 +62,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def load_settings():
     """
     Load user settings and typing history from the settings file.
-    
+
     If the file doesn't exist or contains invalid JSON, returns an empty dictionary.
-    
+
     Returns:
         dict: User settings and typing history
     """
@@ -78,7 +80,7 @@ def load_settings():
 def save_settings(settings):
     """
     Save user settings and typing history to the settings file.
-    
+
     Args:
         settings (dict): User settings and typing history to save
     """
@@ -89,10 +91,10 @@ def save_settings(settings):
 def allowed_file(filename):
     """
     Check if a file has an allowed extension for upload.
-    
+
     Args:
         filename (str): The filename to check
-        
+
     Returns:
         bool: True if the file extension is allowed, False otherwise
     """
@@ -102,13 +104,13 @@ def allowed_file(filename):
 def format_timestamp(timestamp_str):
     """
     Convert various timestamp formats to a standardized YYYY-MM-DD HH:MM format.
-    
+
     Handles ISO format timestamps, timestamps with microseconds, and other formats.
     If conversion fails, returns the original timestamp string.
-    
+
     Args:
         timestamp_str (str): The timestamp string to format
-        
+
     Returns:
         str: Formatted timestamp in YYYY-MM-DD HH:MM format
     """
@@ -136,11 +138,11 @@ def format_timestamp(timestamp_str):
 def index():
     """
     Main route handler for the home page.
-    
+
     Loads user typing history from settings, ensures all history entries have
     properly formatted timestamps, sorts entries by timestamp (newest first),
     and renders the main page template.
-    
+
     Returns:
         rendered template: The main index.html page with typing history
     """
@@ -177,11 +179,11 @@ def index():
 def save():
     """
     API endpoint to save typing test results.
-    
+
     Receives typing test results via JSON POST request, creates a new history entry
     with the current timestamp, and saves it to the settings file. Limits history
     to the 20 most recent entries.
-    
+
     Returns:
         JSON response: Confirmation of save with formatted timestamp
     """
@@ -215,9 +217,9 @@ def save():
 def clear_history():
     """
     API endpoint to clear typing history.
-    
+
     Clears all typing history entries from the settings file.
-    
+
     Returns:
         JSON response: Confirmation of history clearing
     """
@@ -231,10 +233,10 @@ def clear_history():
 def about():
     """
     Route handler for the About page.
-    
+
     Loads profile image information from settings and determines if the user
     is an admin (based on localhost access) for conditional display of admin features.
-    
+
     Returns:
         rendered template: The about.html page with profile image and admin status
     """
@@ -249,10 +251,10 @@ def about():
 def upload_image():
     """
     Route handler for profile image uploads.
-    
+
     Allows admin users (localhost only) to upload a profile image for the About page.
     Validates the uploaded file, saves it with a secure filename, and updates settings.
-    
+
     Returns:
         redirect: Redirects back to the About page after processing
     """
@@ -290,11 +292,33 @@ def resolve_browser_path(browser_choice: str):
     Supports 'firefox' and 'edge'. Returns (exe_path, args_for_new_window).
     """
     url_flag = []
+    if browser_choice == 'chromium':
+        # Prefer a bundled portable Chromium launcher within the project, if present
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        portable_chromium = os.path.join(base_dir, 'Chromium', 'chrome.exe')
+        if os.path.exists(portable_chromium):
+            # ChromiumPortable.exe accepts the URL directly
+            return portable_chromium, []
+        # Fallback: try common chromium executables if available (edge/chrome)
+        candidates = [
+            shutil.which('chromium'),
+            shutil.which('chrome'),
+            shutil.which('google-chrome'),
+            shutil.which('msedge'),
+        ]
+        exe = next((c for c in candidates if c and os.path.exists(c)), None)
+        return exe, ['--new-window']
     if browser_choice == 'firefox':
+        # Prefer a bundled portable Firefox launcher within the project, if present
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        portable_launcher = os.path.join(base_dir, 'Firefox', 'FirefoxPortable.exe')
+        if os.path.exists(portable_launcher):
+            # FirefoxPortable.exe accepts the URL directly; no extra window flags
+            return portable_launcher, []
         candidates = [
             r"C:\\Program Files\\Mozilla Firefox\\firefox.exe",
             r"C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
-            shutil.which('firefox')
+            shutil.which('firefox'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
         return exe, ['-new-window']
@@ -302,7 +326,7 @@ def resolve_browser_path(browser_choice: str):
         candidates = [
             r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
             r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-            shutil.which('msedge')
+            shutil.which('msedge'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
         return exe, ['--new-window']
@@ -327,26 +351,33 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
                 temp_profile_dir = tempfile.mkdtemp(prefix='ctt_ff_')
                 # --no-remote allows running a separate instance
                 iso_args = ['--no-remote', '-profile', temp_profile_dir]
-            elif isolated and browser_choice == 'edge':
-                # Create isolated user data dir for Edge (Chromium)
-                temp_profile_dir = tempfile.mkdtemp(prefix='ctt_edge_')
-                iso_args = [f'--user-data-dir={temp_profile_dir}', '--no-first-run', '--no-default-browser-check']
+            elif isolated and browser_choice in ('edge', 'chromium'):
+                # Create isolated user data dir for Chromium-based browsers
+                # Skip adding isolation flags if using a portable launcher that manages its own profile
+                if exe and exe.lower().endswith('chromiumportable.exe'):
+                    iso_args = []
+                else:
+                    temp_profile_dir = tempfile.mkdtemp(prefix='ctt_edge_')
+                    iso_args = [f'--user-data-dir={temp_profile_dir}', '--no-first-run', '--no-default-browser-check']
 
             cmd = [exe, *win_args, *iso_args, url]
             proc = subprocess.Popen(cmd)
         else:
             # Fall back to system default browser new window when possible
             import webbrowser
+
             webbrowser.open_new(url)
     except Exception:
         try:
             import webbrowser
+
             webbrowser.open_new(url)
         except Exception:
             pass
 
     # Start watcher thread to exit app when browser window closes
     if proc is not None:
+
         def _watch():
             try:
                 proc.wait()
@@ -362,6 +393,7 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
                         shutil.rmtree(temp_profile_dir, ignore_errors=True)
                     except Exception:
                         pass
+
         t = threading.Thread(target=_watch, daemon=True)
         t.start()
 
@@ -382,8 +414,12 @@ def wait_for_server(url: str, timeout_seconds: float = 15.0, interval: float = 0
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Code Typing Trainer')
-    parser.add_argument('--browser', choices=['firefox', 'edge'], default=None,
-                        help='Choose which browser to launch (firefox or edge). If omitted, tries firefox then edge, else default.')
+    parser.add_argument(
+        '--browser',
+        choices=['chromium', 'firefox', 'edge'],
+        default=None,
+        help='Choose which browser to launch (chromium, firefox, or edge). If omitted, tries chromium, then firefox, then edge.',
+    )
     # Support commands that inject a standalone '--' separator (e.g., some runners)
     forwarded = [a for a in sys.argv[1:] if a != '--']
     args = parser.parse_args(forwarded)
@@ -391,8 +427,10 @@ if __name__ == '__main__':
     # Determine browser preference
     chosen = args.browser
     if chosen is None:
-        # Auto-detect: prefer firefox, then edge
-        if resolve_browser_path('firefox')[0]:
+        # Auto-detect: prefer chromium, then firefox, then edge
+        if resolve_browser_path('chromium')[0]:
+            chosen = 'chromium'
+        elif resolve_browser_path('firefox')[0]:
             chosen = 'firefox'
         elif resolve_browser_path('edge')[0]:
             chosen = 'edge'
@@ -404,6 +442,7 @@ if __name__ == '__main__':
         url = 'http://127.0.0.1:5000'
         wait_for_server(url, timeout_seconds=20.0, interval=0.3)
         open_browser_and_watch(chosen if chosen else '', url)
+
     threading.Thread(target=_wait_then_open, daemon=True).start()
 
     # Start the Flask development server without reloader to avoid multiple windows
