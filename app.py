@@ -29,7 +29,7 @@ import urllib.request
 from datetime import datetime
 
 # Third-party imports
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
 
@@ -53,48 +53,146 @@ app = Flask(__name__)
 # Generate a secure random secret key for session management
 app.secret_key = secrets.token_hex(16)
 
-# Configuration constants
-SETTINGS_FILE = 'train_settings.json'  # File to store user settings and history
-UPLOAD_FOLDER = os.path.join('static', 'uploads')  # Directory for profile image uploads
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}  # Allowed image file extensions
+# Process-level reentrant lock for thread-safe settings access
+_SETTINGS_LOCK = threading.RLock()
 
-# Create uploads directory if it doesn't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Allowed image file extensions
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
-# Base directory for on-disk code templates (organized as templates/<language>/*.ext)
+# Base directory for application code
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CODE_TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 # Optional STM32 HAL project-style source directory to scan as its own language
 CORE_SRC_DIR = os.path.join(BASE_DIR, 'Core', 'Src')
 
 
+def get_data_dir() -> str:
+    """
+    Get the stable application data directory for user settings and uploads.
+    Priority:
+    1. CODE_TYPING_TRAINER_DATA_DIR environment variable (if set).
+    2. Windows: %APPDATA%/CodeTypingTrainer.
+    3. Non-Windows: ~/.local/share/code_typing_trainer or ~/.code_typing_trainer.
+    """
+    env_dir = os.environ.get('CODE_TYPING_TRAINER_DATA_DIR')
+    if env_dir:
+        d = os.path.abspath(env_dir)
+    elif sys.platform == 'win32':
+        appdata = os.environ.get('APPDATA')
+        if appdata:
+            d = os.path.join(appdata, 'CodeTypingTrainer')
+        else:
+            d = os.path.join(os.path.expanduser('~'), '.code_typing_trainer')
+    else:
+        xdg_data = os.environ.get('XDG_DATA_HOME')
+        if xdg_data:
+            d = os.path.join(xdg_data, 'code_typing_trainer')
+        else:
+            d = os.path.join(os.path.expanduser('~'), '.local', 'share', 'code_typing_trainer')
+
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def init_storage(data_dir: str = None):
+    """
+    Initialize storage paths (SETTINGS_FILE, UPLOAD_FOLDER) against data_dir,
+    and perform one-time migration of legacy cwd/base_dir files if present.
+    """
+    global DATA_DIR, SETTINGS_FILE, UPLOAD_FOLDER
+    if data_dir is None:
+        DATA_DIR = get_data_dir()
+    else:
+        DATA_DIR = os.path.abspath(data_dir)
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+    SETTINGS_FILE = os.path.join(DATA_DIR, 'train_settings.json')
+    UPLOAD_FOLDER = os.path.join(DATA_DIR, 'uploads')
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+    # Legacy settings migration
+    legacy_settings = os.path.join(BASE_DIR, 'train_settings.json')
+    if os.path.exists(legacy_settings) and not os.path.exists(SETTINGS_FILE):
+        try:
+            shutil.copy2(legacy_settings, SETTINGS_FILE)
+        except Exception as e:
+            print(f"Warning: Failed to migrate legacy settings: {e}")
+
+    # Legacy uploads migration
+    legacy_uploads = os.path.join(BASE_DIR, 'static', 'uploads')
+    if os.path.isdir(legacy_uploads) and os.path.abspath(legacy_uploads) != os.path.abspath(UPLOAD_FOLDER):
+        try:
+            for item in os.listdir(legacy_uploads):
+                s_item = os.path.join(legacy_uploads, item)
+                d_item = os.path.join(UPLOAD_FOLDER, item)
+                if os.path.isfile(s_item) and not os.path.exists(d_item):
+                    shutil.copy2(s_item, d_item)
+        except Exception as e:
+            print(f"Warning: Failed to migrate legacy uploads: {e}")
+
+
+# Initialize storage configuration on startup
+init_storage()
+
+
 def load_settings():
     """
-    Load user settings and typing history from the settings file.
-
-    If the file doesn't exist or contains invalid JSON, returns an empty dictionary.
+    Load user settings and typing history from the settings file safely.
+    Uses process-level lock and handles missing, empty, unreadable,
+    and corrupted JSON files with safe recovery.
 
     Returns:
         dict: User settings and typing history
     """
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
+    with _SETTINGS_LOCK:
+        if not os.path.exists(SETTINGS_FILE):
+            return {}
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    return {}
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    return data
+                return {}
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+            # Safe recovery: backup corrupted file if possible and return empty dict
             try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}  # Return empty dict if JSON is invalid
-    return {}  # Return empty dict if file doesn't exist
+                corrupt_backup = f"{SETTINGS_FILE}.corrupt.{int(time.time())}"
+                if os.path.exists(SETTINGS_FILE) and not os.path.exists(corrupt_backup):
+                    shutil.copy2(SETTINGS_FILE, corrupt_backup)
+            except Exception:
+                pass
+            return {}
 
 
 def save_settings(settings):
     """
-    Save user settings and typing history to the settings file.
+    Save user settings and typing history to the settings file atomically.
+    Acquires process lock, writes to a temporary file in the same directory,
+    flushes and fsyncs, then replaces destination atomically.
 
     Args:
         settings (dict): User settings and typing history to save
     """
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=4)  # Save with pretty formatting
+    with _SETTINGS_LOCK:
+        settings_dir = os.path.dirname(os.path.abspath(SETTINGS_FILE))
+        os.makedirs(settings_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix='settings_', suffix='.tmp', dir=settings_dir)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=4, cls=DateTimeEncoder)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, SETTINGS_FILE)
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
 
 
 def allowed_file(filename):
@@ -246,15 +344,16 @@ def save():
         'display_timestamp': datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M'),
     }
 
-    settings = load_settings()
-    history = settings.get('history', [])
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        history = settings.get('history', [])
 
-    # Insert new entry at the beginning
-    history.insert(0, entry)
+        # Insert new entry at the beginning
+        history.insert(0, entry)
 
-    # Keep only the 20 most recent entries
-    settings['history'] = history[:20]
-    save_settings(settings)
+        # Keep only the 20 most recent entries
+        settings['history'] = history[:20]
+        save_settings(settings)
 
     # Return the formatted timestamp
     return jsonify({'status': 'saved', 'timestamp': entry['display_timestamp']})
@@ -270,9 +369,10 @@ def clear_history():
     Returns:
         JSON response: Confirmation of history clearing
     """
-    settings = load_settings()
-    settings['history'] = []
-    save_settings(settings)
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings['history'] = []
+        save_settings(settings)
     return jsonify({'status': 'cleared'})
 
 
@@ -324,11 +424,20 @@ def upload_image():
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(file_path)
 
-    settings = load_settings()
-    settings['profile_image'] = filename
-    save_settings(settings)
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings['profile_image'] = filename
+        save_settings(settings)
 
     return redirect(url_for('about'))
+
+
+@app.route('/static/uploads/<path:filename>')
+def uploaded_file(filename):
+    """
+    Serve uploaded profile images from the stable application UPLOAD_FOLDER.
+    """
+    return send_from_directory(UPLOAD_FOLDER, secure_filename(filename))
 
 
 def _read_text_file(path: str) -> str:

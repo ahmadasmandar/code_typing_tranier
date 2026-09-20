@@ -99,12 +99,12 @@ git status --short
 
 **Goal:** Prevent data loss, corruption, and working-directory surprises.
 
-- [ ] `WP-20` Define the application data directory for source and packaged execution.
-- [ ] `WP-21` Resolve `train_settings.json` and profile uploads against that data directory.
-- [ ] `WP-22` Add a process-level lock around settings read-modify-write operations.
-- [ ] `WP-23` Write JSON to a same-directory temporary file, flush it, and atomically replace the destination.
-- [ ] `WP-24` Handle missing, invalid, unreadable, and interrupted settings files with safe recovery behavior.
-- [ ] `WP-25` Add tests for alternate working directories, malformed JSON, concurrent saves, and retained history.
+- [x] `WP-20` Define the application data directory for source and packaged execution.
+- [x] `WP-21` Resolve `train_settings.json` and profile uploads against that data directory.
+- [x] `WP-22` Add a process-level lock around settings read-modify-write operations.
+- [x] `WP-23` Write JSON to a same-directory temporary file, flush it, and atomically replace the destination.
+- [x] `WP-24` Handle missing, invalid, unreadable, and interrupted settings files with safe recovery behavior.
+- [x] `WP-25` Add tests for alternate working directories, malformed JSON, concurrent saves, and retained history.
 
 **Gate 2:** Launching from the repository directory and another directory uses the same user-data location; concurrent saves do not corrupt JSON or silently lose retained entries.
 
@@ -168,12 +168,12 @@ Update this table as work proceeds. Do not mark an item `DONE` without evidence.
 | WP-11 | P1 | DONE | Ahmad Asmandar | `app.py`, `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Defined explicit response contracts across all routes: `/save` (200 JSON success, 400 JSON on invalid), `/clear` (200 JSON), `/upload_image` (302 redirect), `/api/upload_template` (200 JSON on save, 400 JSON on missing/invalid, 403 on remote) |
 | WP-12 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented `_validate_non_negative_number` in `/save`: enforces dictionary JSON, finite non-negative numbers, bounds (wpm <= 2000, errors/backspaces <= 100000), integer types for counts, and rejects booleans/strings/infinities/NaNs |
 | WP-13 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Expanded test suite to 20 tests covering valid submissions, malformed JSON, negative values, booleans, non-finite values, history 20-entry capping and ordering, image uploads, template uploads, and unauthorized remote access |
-| WP-20 | P1 | PLANNED |  |  |  |  |
-| WP-21 | P1 | PLANNED |  |  |  |  |
-| WP-22 | P1 | PLANNED |  |  |  |  |
-| WP-23 | P1 | PLANNED |  |  |  |  |
-| WP-24 | P1 | PLANNED |  |  |  |  |
-| WP-25 | P1 | PLANNED |  |  |  |  |
+| WP-20 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Defined `get_data_dir()` with cross-platform OS paths (`%APPDATA%/CodeTypingTrainer` on Windows, XDG/home on Linux/macOS) and override via `CODE_TYPING_TRAINER_DATA_DIR` |
+| WP-21 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented `init_storage()` resolving `train_settings.json` and `uploads/` against `DATA_DIR`; added legacy migration from project directory and `/static/uploads/<filename>` route |
+| WP-22 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added `_SETTINGS_LOCK` reentrant mutex around `load_settings()`, `save_settings()`, `/save`, `/clear`, and `/upload_image` |
+| WP-23 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented atomic JSON writes using same-directory temporary file (`tempfile.mkstemp`), explicit flush + `os.fsync`, and atomic replacement (`os.replace`) |
+| WP-24 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added robust recovery in `load_settings()` for missing files, empty files, and corrupted JSON; creates timestamped `.corrupt.<ts>` backup before returning clean fallback |
+| WP-25 | P1 | DONE | Ahmad Asmandar | `tests/test_persistence.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added test suite covering data directory resolution, alternate working directory persistence, atomic replace, corrupted file backup, and concurrent multi-threaded saves |
 | WP-30 | P1 | PLANNED |  |  |  |  |
 | WP-31 | P2 | PLANNED |  |  |  |  |
 | WP-32 | P2 | PLANNED |  |  |  |  |
@@ -259,15 +259,35 @@ Decision:
 - Validate raw language folder name with strict regex ^[a-zA-Z0-9_-]{1,30}$ before sanitization to reject path traversal attempts with 400.
 ```
 
+```text
+Date: 2026-09-20
+Work items: WP-20, WP-21, WP-22, WP-23, WP-24, WP-25 (Phase 2 Safe & Portable Persistence)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe -m py_compile app.py tests/test_baseline_routes.py tests/test_persistence.py -> (clean compilation, exit code 0)
+2. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 28 tests in 0.456s (OK, exit code 0)
+Observed results:
+- Data directory: Successfully resolved via get_data_dir() and CODE_TYPING_TRAINER_DATA_DIR override.
+- Working directory independence: Application correctly loads and saves settings when executed with CWD outside the repository.
+- Atomic replacement: save_settings writes via same-directory temp file with flush and fsync before os.replace, leaving no lingering .tmp files.
+- Corruption recovery: Corrupted JSON is safely backed up to .corrupt.<ts> and load_settings falls back to {} without crashing.
+- Concurrency: 10 concurrent threads executing 50 simultaneous saves ran without JSON corruption or deadlocks; history kept exactly 20 valid entries.
+Failures:
+- None.
+Decision:
+- Centralize user data under OS standard user data directory (%APPDATA%/CodeTypingTrainer on Windows) with automatic migration of legacy project-directory files.
+- Use same-directory mkstemp + os.replace for guaranteed atomic filesystem writes.
+```
+
 ## 8. Risk Register
 
 | Risk | Trigger | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| Existing user history is lost during path migration | First launch after data-directory change | Detect and migrate the old file once; keep a backup before replacement |  | OPEN |
+| Existing user history is lost during path migration | First launch after data-directory change | Detect and migrate the old file once; keep a backup before replacement | Ahmad Asmandar | MITIGATED |
 | Packaged build behaves differently from source run | Missing runtime asset or altered base path | Run the executable outside the repository in every packaging change |  | OPEN |
 | Security hardening breaks local browser workflow | Browser-origin or IPv6 assumptions differ | Test the actual local browser workflow before and after each security change |  | OPEN |
 | Dependency cleanup breaks legacy scripts | Historical files rely on broad requirements | Keep the supported app dependency set explicit and verify documented commands |  | OPEN |
-| Concurrent persistence change creates deadlocks | Lock lifetime is too broad | Keep lock scope limited to load/modify/save and test failure paths |  | OPEN |
+| Concurrent persistence change creates deadlocks | Lock lifetime is too broad | Keep lock scope limited to load/modify/save and test failure paths | Ahmad Asmandar | MITIGATED |
 
 ## 9. Decision Records
 
@@ -279,6 +299,8 @@ Record decisions that affect scope or compatibility here.
 | 2026-09-20 | Use standard library `unittest` and `app.test_client()` for backend test harness | Zero external dependencies required, fast execution (<0.03s), native to Python 3.12, avoids lockfile churn | Installing pytest, webtest, or external test runners | Ahmad Asmandar |
 | 2026-09-20 | Complete `/upload_image` with local-only validation rather than deleting it | Keeps existing `about.html` profile image presentation functional and resolves Finding `REL-01` | Removing profile image functionality and related templates | Ahmad Asmandar |
 | 2026-09-20 | Strict pre-sanitization validation on `/api/upload_template` language folder | Rejects traversal paths (`../c`, `c/sub`) with HTTP 400 rather than silently mutating them | Allowing silent sanitization to alter folder targets | Ahmad Asmandar |
+| 2026-09-20 | Centralize user storage in OS standard user directory with atomic write and process lock | Prevents data corruption during concurrent saves, allows running from any CWD, and prevents writing mutable data inside packaged app bundle | CWD-relative files, SQLite database migration | Ahmad Asmandar |
+
 
 
 
