@@ -37,6 +37,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const templateRecent = document.getElementById('templateRecent');
   const templateFavorite = document.getElementById('templateFavorite');
 
+  // When launched through the system default browser, the server cannot
+  // obtain a browser process handle. A lightweight heartbeat lets it detect
+  // when the app page is closed and terminate cleanly.
+  if (codeInput) {
+    const sendBrowserHeartbeat = () => {
+      fetch('/__browser_heartbeat', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    };
+    sendBrowserHeartbeat();
+    const heartbeatTimer = window.setInterval(sendBrowserHeartbeat, 2000);
+    window.addEventListener('beforeunload', () => {
+      window.clearInterval(heartbeatTimer);
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/__browser_closed', new Blob([], { type: 'application/octet-stream' }));
+      }
+    });
+  }
+
   // State variables
   let code = '',              // The code to be typed
       index = 0,             // Current position in the code
@@ -926,6 +943,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateResultInsights(wpmVal, accuracy);
     document.getElementById('modalErrors').textContent = errorCount;
     document.getElementById('modalBackspaces').textContent = backspaceCount;
+    codeDisplay.blur();
     summaryModal.classList.add('show');
     
     // Update chart safely if available
@@ -1031,6 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateResultInsights(wpmVal, accuracy);
     document.getElementById('modalErrors').textContent = errorCount;
     document.getElementById('modalBackspaces').textContent = backspaceCount;
+    codeDisplay.blur();
     summaryModal.classList.add('show');
 
     // Do NOT save or update chart/history on Stop; just show the modal preview

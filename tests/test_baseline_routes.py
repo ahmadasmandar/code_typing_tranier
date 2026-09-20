@@ -55,6 +55,29 @@ class RouteContractTests(unittest.TestCase):
         self.assertIn(b'<!DOCTYPE html>', response.data)
         self.assertIn(b'Code Typing Trainer', response.data)
 
+    def test_browser_liveness_routes_accept_local_requests(self):
+        """The browser fallback heartbeat is available only on loopback."""
+        heartbeat = self.client.post('/__browser_heartbeat')
+        self.assertEqual(heartbeat.status_code, 200)
+        self.assertEqual(heartbeat.get_json()['status'], 'ok')
+
+        closed = self.client.post('/__browser_closed')
+        self.assertEqual(closed.status_code, 200)
+        self.assertEqual(closed.get_json()['status'], 'closed')
+
+    def test_browser_liveness_routes_reject_non_loopback_requests(self):
+        """Heartbeat endpoints must not be usable from non-local clients."""
+        heartbeat = self.client.post(
+            '/__browser_heartbeat',
+            environ_base={'REMOTE_ADDR': '192.0.2.10'},
+        )
+        self.assertEqual(heartbeat.status_code, 403)
+        closed = self.client.post(
+            '/__browser_closed',
+            environ_base={'REMOTE_ADDR': '192.0.2.10'},
+        )
+        self.assertEqual(closed.status_code, 403)
+
     def test_about_get(self):
         """GET /about returns HTTP 200 and renders the about page."""
         response = self.client.get('/about')

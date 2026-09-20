@@ -69,6 +69,14 @@ app.secret_key = secrets.token_hex(16)
 # Process-level reentrant lock for thread-safe settings access
 _SETTINGS_LOCK = threading.RLock()
 
+# Browser liveness state used when the system default browser is launched.
+# webbrowser.open_new does not return a process handle, so the frontend
+# heartbeat gives the server a reliable way to detect that the app page closed.
+_BROWSER_STATE_LOCK = threading.Lock()
+_BROWSER_LAST_HEARTBEAT = None
+_BROWSER_CLOSED = False
+_BROWSER_HEARTBEAT_TIMEOUT = 6.0
+
 # Allowed image file extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
@@ -348,6 +356,39 @@ def index():
     # print("Sending history to template:", history)
 
     return render_template('index.html', history=history)
+
+
+def reset_browser_liveness():
+    """Reset browser liveness state before opening a new app window."""
+    global _BROWSER_LAST_HEARTBEAT, _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_LAST_HEARTBEAT = None
+        _BROWSER_CLOSED = False
+
+
+@app.route('/__browser_heartbeat', methods=['GET', 'POST'])
+def browser_heartbeat():
+    """Record that the locally opened app page is still alive."""
+    if not is_loopback_request():
+        return jsonify({'error': 'not authorized'}), 403
+
+    global _BROWSER_LAST_HEARTBEAT, _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_LAST_HEARTBEAT = time.monotonic()
+        _BROWSER_CLOSED = False
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/__browser_closed', methods=['POST'])
+def browser_closed():
+    """Record an explicit page-unload signal from the locally opened app."""
+    if not is_loopback_request():
+        return jsonify({'error': 'not authorized'}), 403
+
+    global _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_CLOSED = True
+    return jsonify({'status': 'closed'})
 
 
 def _validate_non_negative_number(val, field_name: str, max_val: float = 10000.0, is_int: bool = False):
@@ -709,7 +750,8 @@ def api_upload_template():
 def resolve_browser_path(browser_choice: str):
     """
     Resolve the executable path for the requested browser on Windows.
-    Supports 'firefox' and 'edge'. Returns (exe_path, args_for_new_window).
+    Supports Chromium/Chrome, Firefox, and Edge.
+    Returns (exe_path, args_for_new_window).
     """
     url_flag = []
     if browser_choice == 'chromium':
@@ -721,6 +763,9 @@ def resolve_browser_path(browser_choice: str):
             return portable_chromium, []
         # Fallback: try common chromium executables if available (edge/chrome)
         candidates = [
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
             shutil.which('chromium'),
             shutil.which('chrome'),
             shutil.which('google-chrome'),
@@ -736,16 +781,17 @@ def resolve_browser_path(browser_choice: str):
             # FirefoxPortable.exe accepts the URL directly; no extra window flags
             return portable_launcher, []
         candidates = [
-            r"C:\\Program Files\\Mozilla Firefox\\firefox.exe",
-            r"C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Mozilla Firefox', 'firefox.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Mozilla Firefox', 'firefox.exe'),
             shutil.which('firefox'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
         return exe, ['-new-window']
     elif browser_choice == 'edge':
         candidates = [
-            r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-            r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
             shutil.which('msedge'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
@@ -762,6 +808,7 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
     proc = None
     start_time = time.monotonic()
     temp_profile_dir = None
+    reset_browser_liveness()
     try:
         if exe:
             # Launch specific browser with new-window argument
@@ -800,22 +847,48 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
 
         def _watch():
             try:
-                proc.wait()
+                while proc.poll() is None:
+                    with _BROWSER_STATE_LOCK:
+                        last_heartbeat = _BROWSER_LAST_HEARTBEAT
+
+                    # Chromium/Edge may keep a launcher process alive after
+                    # the app window closes. Use the page heartbeat as the
+                    # authoritative signal in that case.
+                    if last_heartbeat is not None and time.monotonic() - last_heartbeat > _BROWSER_HEARTBEAT_TIMEOUT:
+                        break
+                    time.sleep(1.0)
             finally:
-                # Only exit if this dedicated browser process lived long enough
-                # to represent the user's dedicated window (avoid immediate delegate cases)
-                lifetime = time.monotonic() - start_time
-                if lifetime >= 2.0:
-                    os._exit(0)
-                # Cleanup temp profile directories
+                # Always clean up the temporary profile before terminating.
                 if temp_profile_dir:
                     try:
                         shutil.rmtree(temp_profile_dir, ignore_errors=True)
                     except Exception:
                         pass
+                # Only exit if this dedicated browser process lived long enough
+                # to represent the user's dedicated window (avoid immediate delegate cases)
+                lifetime = time.monotonic() - start_time
+                if lifetime >= 2.0:
+                    os._exit(0)
 
         t = threading.Thread(target=_watch, daemon=True)
         t.start()
+    else:
+        # The system-default-browser fallback has no process handle. Monitor
+        # the app page itself so closing that page still shuts down Flask.
+        def _watch_heartbeat():
+            while True:
+                with _BROWSER_STATE_LOCK:
+                    last_heartbeat = _BROWSER_LAST_HEARTBEAT
+                    browser_closed = _BROWSER_CLOSED
+
+                # Do not shut down if the browser failed to open or the page
+                # has not loaded yet; leave the server available for recovery.
+                if last_heartbeat is not None:
+                    if browser_closed or time.monotonic() - last_heartbeat > _BROWSER_HEARTBEAT_TIMEOUT:
+                        os._exit(0)
+                time.sleep(1.0)
+
+        threading.Thread(target=_watch_heartbeat, daemon=True).start()
 
 
 def wait_for_server(url: str, timeout_seconds: float = 15.0, interval: float = 0.3) -> bool:

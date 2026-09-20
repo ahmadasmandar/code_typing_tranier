@@ -719,6 +719,12 @@ pre#codeDisplay {
   border-radius: 4px;
 }
 
+/* The typing display is keyboard-focusable, but its browser-default outline
+   must not bleed through the result dialog. */
+pre#codeDisplay:focus {
+  outline: none;
+}
+
 /* Active char uses the classic highlighter via .active rule below */
 
 /* Current line highlight (applied to spans in the active line) */
@@ -910,6 +916,7 @@ pre#codeDisplay span.line-active.active {
   display: none;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
 }
 
 .modal.show {
@@ -922,6 +929,10 @@ pre#codeDisplay span.line-active.active {
   border-radius: 8px;
   border: 2px solid var(--accent);
   text-align: center;
+  max-width: min(92vw, 520px);
+  max-height: 88vh;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .modal-content button {
