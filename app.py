@@ -11,10 +11,13 @@ Version: 1.0.0
 Date: 2025-06-22
 """
 
-import argparse
-
 # Standard library imports
+import argparse
+import csv
+import ipaddress
+import io
 import json
+import math
 import os
 import re
 import secrets
@@ -26,9 +29,10 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Third-party imports
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
 
@@ -46,54 +50,225 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-# Initialize Flask application
-app = Flask(__name__)
+# Base directory for application code (supports PyInstaller frozen bundles)
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Initialize Flask application with explicit templates and static directories
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'templates'),
+    static_folder=os.path.join(BASE_DIR, 'static'),
+)
 
 # Generate a secure random secret key for session management
 app.secret_key = secrets.token_hex(16)
 
-# Configuration constants
-SETTINGS_FILE = 'train_settings.json'  # File to store user settings and history
-UPLOAD_FOLDER = os.path.join('static', 'uploads')  # Directory for profile image uploads
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}  # Allowed image file extensions
+# Process-level reentrant lock for thread-safe settings access
+_SETTINGS_LOCK = threading.RLock()
 
-# Create uploads directory if it doesn't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Browser liveness state used when the system default browser is launched.
+# webbrowser.open_new does not return a process handle, so the frontend
+# heartbeat gives the server a reliable way to detect that the app page closed.
+_BROWSER_STATE_LOCK = threading.Lock()
+_BROWSER_LAST_HEARTBEAT = None
+_BROWSER_CLOSED = False
+_BROWSER_HEARTBEAT_TIMEOUT = 6.0
 
-# Base directory for on-disk code templates (organized as templates/<language>/*.ext)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Allowed image file extensions
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Allowed code template extensions
+ALLOWED_TEMPLATE_EXTENSIONS = {
+    '.c', '.h', '.cpp', '.hpp', '.cc', '.py', '.vhd', '.vhdl',
+    '.js', '.ts', '.java', '.go', '.html', '.css', '.txt', '.json', '.md'
+}
+
+# Limit max upload payload size to 10 MB
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+
 CODE_TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 # Optional STM32 HAL project-style source directory to scan as its own language
 CORE_SRC_DIR = os.path.join(BASE_DIR, 'Core', 'Src')
 
 
+def is_loopback_address(addr: str) -> bool:
+    """
+    Check whether an IP address string or hostname is a valid loopback address.
+    Supports IPv4 (127.0.0.0/8), IPv6 (::1, ::ffff:127.0.0.1), and localhost.
+    """
+    if not addr:
+        return False
+    if '%' in addr:
+        addr = addr.split('%')[0]
+    clean_addr = addr.strip().lower()
+    if clean_addr in ('127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1'):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean_addr)
+        return ip.is_loopback
+    except ValueError:
+        return False
+
+
+def is_loopback_request() -> bool:
+    """Check if the current Flask request originated from a loopback address."""
+    remote = request.remote_addr
+    return is_loopback_address(remote)
+
+
+def is_trusted_origin() -> bool:
+    """
+    Verify that state-changing requests originate from a trusted origin / referer.
+    If Origin or Referer header is present, its hostname must be a loopback address
+    or match the Host header.
+    """
+    origin = request.headers.get('Origin')
+    if origin:
+        parsed = urlparse(origin)
+        hostname = (parsed.hostname or '').strip().lower()
+        if not (is_loopback_address(hostname) or hostname == (request.host.split(':')[0]).strip().lower()):
+            return False
+
+    referer = request.headers.get('Referer')
+    if referer:
+        parsed = urlparse(referer)
+        hostname = (parsed.hostname or '').strip().lower()
+        if not (is_loopback_address(hostname) or hostname == (request.host.split(':')[0]).strip().lower()):
+            return False
+
+    return True
+
+
+def get_data_dir() -> str:
+    """
+    Get the stable application data directory for user settings and uploads.
+    Priority:
+    1. CODE_TYPING_TRAINER_DATA_DIR environment variable (if set).
+    2. Windows: %APPDATA%/CodeTypingTrainer.
+    3. Non-Windows: ~/.local/share/code_typing_trainer or ~/.code_typing_trainer.
+    """
+    env_dir = os.environ.get('CODE_TYPING_TRAINER_DATA_DIR')
+    if env_dir:
+        d = os.path.abspath(env_dir)
+    elif sys.platform == 'win32':
+        appdata = os.environ.get('APPDATA')
+        if appdata:
+            d = os.path.join(appdata, 'CodeTypingTrainer')
+        else:
+            d = os.path.join(os.path.expanduser('~'), '.code_typing_trainer')
+    else:
+        xdg_data = os.environ.get('XDG_DATA_HOME')
+        if xdg_data:
+            d = os.path.join(xdg_data, 'code_typing_trainer')
+        else:
+            d = os.path.join(os.path.expanduser('~'), '.local', 'share', 'code_typing_trainer')
+
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def init_storage(data_dir: str = None):
+    """
+    Initialize storage paths (SETTINGS_FILE, UPLOAD_FOLDER) against data_dir,
+    and perform one-time migration of legacy cwd/base_dir files if present.
+    """
+    global DATA_DIR, SETTINGS_FILE, UPLOAD_FOLDER
+    if data_dir is None:
+        DATA_DIR = get_data_dir()
+    else:
+        DATA_DIR = os.path.abspath(data_dir)
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+    SETTINGS_FILE = os.path.join(DATA_DIR, 'train_settings.json')
+    UPLOAD_FOLDER = os.path.join(DATA_DIR, 'uploads')
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+    # Legacy settings migration
+    legacy_settings = os.path.join(BASE_DIR, 'train_settings.json')
+    if os.path.exists(legacy_settings) and not os.path.exists(SETTINGS_FILE):
+        try:
+            shutil.copy2(legacy_settings, SETTINGS_FILE)
+        except Exception as e:
+            print(f"Warning: Failed to migrate legacy settings: {e}")
+
+    # Legacy uploads migration
+    legacy_uploads = os.path.join(BASE_DIR, 'static', 'uploads')
+    if os.path.isdir(legacy_uploads) and os.path.abspath(legacy_uploads) != os.path.abspath(UPLOAD_FOLDER):
+        try:
+            for item in os.listdir(legacy_uploads):
+                s_item = os.path.join(legacy_uploads, item)
+                d_item = os.path.join(UPLOAD_FOLDER, item)
+                if os.path.isfile(s_item) and not os.path.exists(d_item):
+                    shutil.copy2(s_item, d_item)
+        except Exception as e:
+            print(f"Warning: Failed to migrate legacy uploads: {e}")
+
+
+# Initialize storage configuration on startup
+init_storage()
+
+
 def load_settings():
     """
-    Load user settings and typing history from the settings file.
-
-    If the file doesn't exist or contains invalid JSON, returns an empty dictionary.
+    Load user settings and typing history from the settings file safely.
+    Uses process-level lock and handles missing, empty, unreadable,
+    and corrupted JSON files with safe recovery.
 
     Returns:
         dict: User settings and typing history
     """
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
+    with _SETTINGS_LOCK:
+        if not os.path.exists(SETTINGS_FILE):
+            return {}
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    return {}
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    return data
+                return {}
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+            # Safe recovery: backup corrupted file if possible and return empty dict
             try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}  # Return empty dict if JSON is invalid
-    return {}  # Return empty dict if file doesn't exist
+                corrupt_backup = f"{SETTINGS_FILE}.corrupt.{int(time.time())}"
+                if os.path.exists(SETTINGS_FILE) and not os.path.exists(corrupt_backup):
+                    shutil.copy2(SETTINGS_FILE, corrupt_backup)
+            except Exception:
+                pass
+            return {}
 
 
 def save_settings(settings):
     """
-    Save user settings and typing history to the settings file.
+    Save user settings and typing history to the settings file atomically.
+    Acquires process lock, writes to a temporary file in the same directory,
+    flushes and fsyncs, then replaces destination atomically.
 
     Args:
         settings (dict): User settings and typing history to save
     """
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=4)  # Save with pretty formatting
+    with _SETTINGS_LOCK:
+        settings_dir = os.path.dirname(os.path.abspath(SETTINGS_FILE))
+        os.makedirs(settings_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix='settings_', suffix='.tmp', dir=settings_dir)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=4, cls=DateTimeEncoder)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, SETTINGS_FILE)
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
 
 
 def allowed_file(filename):
@@ -183,39 +358,131 @@ def index():
     return render_template('index.html', history=history)
 
 
+def reset_browser_liveness():
+    """Reset browser liveness state before opening a new app window."""
+    global _BROWSER_LAST_HEARTBEAT, _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_LAST_HEARTBEAT = None
+        _BROWSER_CLOSED = False
+
+
+@app.route('/__browser_heartbeat', methods=['GET', 'POST'])
+def browser_heartbeat():
+    """Record that the locally opened app page is still alive."""
+    if not is_loopback_request():
+        return jsonify({'error': 'not authorized'}), 403
+
+    global _BROWSER_LAST_HEARTBEAT, _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_LAST_HEARTBEAT = time.monotonic()
+        _BROWSER_CLOSED = False
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/__browser_closed', methods=['POST'])
+def browser_closed():
+    """Record an explicit page-unload signal from the locally opened app."""
+    if not is_loopback_request():
+        return jsonify({'error': 'not authorized'}), 403
+
+    global _BROWSER_CLOSED
+    with _BROWSER_STATE_LOCK:
+        _BROWSER_CLOSED = True
+    return jsonify({'status': 'closed'})
+
+
+def _validate_non_negative_number(val, field_name: str, max_val: float = 10000.0, is_int: bool = False):
+    """
+    Validate that a value is a finite, non-negative number within bounds.
+    Rejects booleans and non-numeric types.
+    """
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return False, f"field '{field_name}' must be a number"
+    if not math.isfinite(val):
+        return False, f"field '{field_name}' must be finite"
+    if val < 0 or val > max_val:
+        return False, f"field '{field_name}' must be between 0 and {max_val}"
+    if is_int and isinstance(val, float) and not val.is_integer():
+        return False, f"field '{field_name}' must be an integer"
+    return True, None
+
+
 @app.route('/save', methods=['POST'])
 def save():
     """
     API endpoint to save typing test results.
 
-    Receives typing test results via JSON POST request, creates a new history entry
-    with the current timestamp, and saves it to the settings file. Limits history
-    to the 20 most recent entries.
+    Receives typing test results via JSON POST request, validates origin,
+    payload structure, and numeric ranges, creates a new history entry with current timestamp,
+    and saves it to the settings file. Limits history to the 20 most recent entries.
 
     Returns:
-        JSON response: Confirmation of save with formatted timestamp
+        JSON response: Confirmation of save with formatted timestamp (200) or error (400/403)
     """
-    data = request.json
+    if not is_trusted_origin():
+        return jsonify({'error': 'untrusted request origin'}), 403
+
+    data = request.get_json(silent=True)
+    if data is None or not isinstance(data, dict):
+        return jsonify({'error': 'invalid JSON payload'}), 400
+
+    wpm_raw = data.get('wpm', 0)
+    valid, err = _validate_non_negative_number(wpm_raw, 'wpm', max_val=2000.0)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    errors_raw = data.get('errors', 0)
+    valid, err = _validate_non_negative_number(errors_raw, 'errors', max_val=100000.0, is_int=True)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    backspaces_raw = data.get('backspaces', 0)
+    valid, err = _validate_non_negative_number(backspaces_raw, 'backspaces', max_val=100000.0, is_int=True)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    optional_fields = {
+        'accuracy': (100.0, False),
+        'duration': (86400.0, False),
+        'completion': (100.0, False),
+        'characters': (1000000.0, True),
+    }
+    optional_values = {}
+    for field_name, (max_val, is_int) in optional_fields.items():
+        if field_name not in data:
+            continue
+        value = data[field_name]
+        valid, err = _validate_non_negative_number(value, field_name, max_val=max_val, is_int=is_int)
+        if not valid:
+            return jsonify({'error': err}), 400
+        optional_values[field_name] = int(value) if is_int else round(float(value), 2)
+
+    # Normalize numeric values
+    wpm = int(wpm_raw) if (isinstance(wpm_raw, int) or (isinstance(wpm_raw, float) and wpm_raw.is_integer())) else round(float(wpm_raw), 1)
+    errors = int(errors_raw)
+    backspaces = int(backspaces_raw)
 
     # Create a new entry with current datetime in ISO format
     timestamp = datetime.now().isoformat()
     entry = {
-        'wpm': data.get('wpm', 0),
-        'errors': data.get('errors', 0),
-        'backspaces': data.get('backspaces', 0),
+        'wpm': wpm,
+        'errors': errors,
+        'backspaces': backspaces,
         'timestamp': timestamp,
         'display_timestamp': datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M'),
     }
+    entry.update(optional_values)
 
-    settings = load_settings()
-    history = settings.get('history', [])
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        history = settings.get('history', [])
 
-    # Insert new entry at the beginning
-    history.insert(0, entry)
+        # Insert new entry at the beginning
+        history.insert(0, entry)
 
-    # Keep only the 20 most recent entries
-    settings['history'] = history[:20]
-    save_settings(settings)
+        # Keep only the 20 most recent entries
+        settings['history'] = history[:20]
+        save_settings(settings)
 
     # Return the formatted timestamp
     return jsonify({'status': 'saved', 'timestamp': entry['display_timestamp']})
@@ -226,15 +493,46 @@ def clear_history():
     """
     API endpoint to clear typing history.
 
-    Clears all typing history entries from the settings file.
+    Clears all typing history entries from the settings file for authorized local users.
 
     Returns:
         JSON response: Confirmation of history clearing
     """
-    settings = load_settings()
-    settings['history'] = []
-    save_settings(settings)
+    if not is_loopback_request() or not is_trusted_origin():
+        return jsonify({'error': 'not authorized'}), 403
+
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings['history'] = []
+        save_settings(settings)
     return jsonify({'status': 'cleared'})
+
+
+@app.route('/export_history', methods=['GET'])
+def export_history():
+    """Export saved history as JSON or CSV for the local user."""
+    if not is_loopback_request() or not is_trusted_origin():
+        return jsonify({'error': 'not authorized'}), 403
+
+    history = load_settings().get('history', [])
+    export_format = request.args.get('format', 'json').lower()
+    if export_format == 'json':
+        response = app.response_class(
+            json.dumps(history, indent=2, ensure_ascii=False),
+            mimetype='application/json',
+        )
+        response.headers['Content-Disposition'] = 'attachment; filename=typing-history.json'
+        return response
+    if export_format == 'csv':
+        fields = ['timestamp', 'display_timestamp', 'wpm', 'accuracy', 'duration', 'completion', 'characters', 'errors', 'backspaces']
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(history)
+        response = app.response_class(output.getvalue(), mimetype='text/csv')
+        response.headers['Content-Disposition'] = 'attachment; filename=typing-history.csv'
+        return response
+    return jsonify({'error': 'format must be json or csv'}), 400
 
 
 @app.route('/about')
@@ -243,15 +541,14 @@ def about():
     Route handler for the About page.
 
     Loads profile image information from settings and determines if the user
-    is an admin (based on localhost access) for conditional display of admin features.
+    is an admin (based on localhost/loopback access) for conditional display of admin features.
 
     Returns:
         rendered template: The about.html page with profile image and admin status
     """
     settings = load_settings()
     profile_image = settings.get('profile_image', None)
-    # Simple admin check - you can implement a more secure method if needed
-    is_admin = request.remote_addr == '127.0.0.1'
+    is_admin = is_loopback_request()
     return render_template('about.html', profile_image=profile_image, is_admin=is_admin)
 
 
@@ -260,15 +557,44 @@ def upload_image():
     """
     Route handler for profile image uploads.
 
-    Allows admin users (localhost only) to upload a profile image for the About page.
-    Validates the uploaded file, saves it with a secure filename, and updates settings.
+    Allows admin users (localhost/loopback only) to upload a profile image for the About page.
+    Validates origin, file presence, allowed extensions, saves with secure filename, and updates settings.
 
     Returns:
         redirect: Redirects back to the About page after processing
     """
-    # Simple admin check - you can implement a more secure method if needed
-    if request.remote_addr != '127.0.0.1':
+    if not is_loopback_request() or not is_trusted_origin():
         return redirect(url_for('about'))
+
+    if 'file' not in request.files:
+        return redirect(url_for('about'))
+
+    file = request.files['file']
+    if not file or file.filename == '' or not allowed_file(file.filename):
+        return redirect(url_for('about'))
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return redirect(url_for('about'))
+
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(file_path)
+
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings['profile_image'] = filename
+        save_settings(settings)
+
+    return redirect(url_for('about'))
+
+
+@app.route('/static/uploads/<path:filename>')
+def uploaded_file(filename):
+    """
+    Serve uploaded profile images from the stable application UPLOAD_FOLDER.
+    """
+    return send_from_directory(UPLOAD_FOLDER, secure_filename(filename))
 
 
 def _read_text_file(path: str) -> str:
@@ -390,8 +716,7 @@ def api_upload_template():
       language: name of subfolder to store under (e.g., "c", "python").
       file: the uploaded code file (e.g., main.c, main.py).
     """
-    # Only allow local admin uploads similar to image upload policy
-    if request.remote_addr != '127.0.0.1':
+    if not is_loopback_request() or not is_trusted_origin():
         return jsonify({"error": "not authorized"}), 403
 
     language = request.form.get('language', '').strip()
@@ -399,12 +724,18 @@ def api_upload_template():
     if not language or not upfile or upfile.filename == '':
         return jsonify({"error": "missing language or file"}), 400
 
-    # Sanitize language and filename
-    safe_lang = secure_filename(language).lower()
-    # Strictly validate language folder name: allow only letters, digits, dash and underscore
-    if not re.fullmatch(r"[a-z0-9_-]{1,30}", safe_lang or ""):
+    # Strictly validate language folder name: allow only letters, digits, dash and underscore (1-30 chars)
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,30}", language):
         return jsonify({"error": "invalid language name"}), 400
+
+    ext = os.path.splitext(upfile.filename)[1].lower()
+    if ext not in ALLOWED_TEMPLATE_EXTENSIONS:
+        return jsonify({"error": f"unsupported file extension '{ext}'"}), 400
+
+    safe_lang = secure_filename(language).lower()
     safe_name = secure_filename(upfile.filename)
+    if not safe_name:
+        return jsonify({"error": "invalid file name"}), 400
     lang_dir = os.path.join(CODE_TEMPLATES_DIR, safe_lang)
     os.makedirs(lang_dir, exist_ok=True)
     dest_path = os.path.join(lang_dir, safe_name)
@@ -419,7 +750,8 @@ def api_upload_template():
 def resolve_browser_path(browser_choice: str):
     """
     Resolve the executable path for the requested browser on Windows.
-    Supports 'firefox' and 'edge'. Returns (exe_path, args_for_new_window).
+    Supports Chromium/Chrome, Firefox, and Edge.
+    Returns (exe_path, args_for_new_window).
     """
     url_flag = []
     if browser_choice == 'chromium':
@@ -431,6 +763,9 @@ def resolve_browser_path(browser_choice: str):
             return portable_chromium, []
         # Fallback: try common chromium executables if available (edge/chrome)
         candidates = [
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
             shutil.which('chromium'),
             shutil.which('chrome'),
             shutil.which('google-chrome'),
@@ -446,16 +781,17 @@ def resolve_browser_path(browser_choice: str):
             # FirefoxPortable.exe accepts the URL directly; no extra window flags
             return portable_launcher, []
         candidates = [
-            r"C:\\Program Files\\Mozilla Firefox\\firefox.exe",
-            r"C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Mozilla Firefox', 'firefox.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Mozilla Firefox', 'firefox.exe'),
             shutil.which('firefox'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
         return exe, ['-new-window']
     elif browser_choice == 'edge':
         candidates = [
-            r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-            r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
             shutil.which('msedge'),
         ]
         exe = next((c for c in candidates if c and os.path.exists(c)), None)
@@ -472,6 +808,7 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
     proc = None
     start_time = time.monotonic()
     temp_profile_dir = None
+    reset_browser_liveness()
     try:
         if exe:
             # Launch specific browser with new-window argument
@@ -510,22 +847,48 @@ def open_browser_and_watch(browser_choice: str, url: str = 'http://127.0.0.1:500
 
         def _watch():
             try:
-                proc.wait()
+                while proc.poll() is None:
+                    with _BROWSER_STATE_LOCK:
+                        last_heartbeat = _BROWSER_LAST_HEARTBEAT
+
+                    # Chromium/Edge may keep a launcher process alive after
+                    # the app window closes. Use the page heartbeat as the
+                    # authoritative signal in that case.
+                    if last_heartbeat is not None and time.monotonic() - last_heartbeat > _BROWSER_HEARTBEAT_TIMEOUT:
+                        break
+                    time.sleep(1.0)
             finally:
-                # Only exit if this dedicated browser process lived long enough
-                # to represent the user's dedicated window (avoid immediate delegate cases)
-                lifetime = time.monotonic() - start_time
-                if lifetime >= 2.0:
-                    os._exit(0)
-                # Cleanup temp profile directories
+                # Always clean up the temporary profile before terminating.
                 if temp_profile_dir:
                     try:
                         shutil.rmtree(temp_profile_dir, ignore_errors=True)
                     except Exception:
                         pass
+                # Only exit if this dedicated browser process lived long enough
+                # to represent the user's dedicated window (avoid immediate delegate cases)
+                lifetime = time.monotonic() - start_time
+                if lifetime >= 2.0:
+                    os._exit(0)
 
         t = threading.Thread(target=_watch, daemon=True)
         t.start()
+    else:
+        # The system-default-browser fallback has no process handle. Monitor
+        # the app page itself so closing that page still shuts down Flask.
+        def _watch_heartbeat():
+            while True:
+                with _BROWSER_STATE_LOCK:
+                    last_heartbeat = _BROWSER_LAST_HEARTBEAT
+                    browser_closed = _BROWSER_CLOSED
+
+                # Do not shut down if the browser failed to open or the page
+                # has not loaded yet; leave the server available for recovery.
+                if last_heartbeat is not None:
+                    if browser_closed or time.monotonic() - last_heartbeat > _BROWSER_HEARTBEAT_TIMEOUT:
+                        os._exit(0)
+                time.sleep(1.0)
+
+        threading.Thread(target=_watch_heartbeat, daemon=True).start()
 
 
 def wait_for_server(url: str, timeout_seconds: float = 15.0, interval: float = 0.3) -> bool:
@@ -550,9 +913,18 @@ if __name__ == '__main__':
         default=None,
         help='Choose which browser to launch (chromium, firefox, or edge). If omitted, tries chromium, then firefox, then edge.',
     )
+    parser.add_argument('--host', default=None, help='Host interface to bind server (default: 127.0.0.1 or CTT_HOST)')
+    parser.add_argument('--port', type=int, default=None, help='Port to bind server (default: 5000 or CTT_PORT)')
+    parser.add_argument('--debug', action='store_true', default=None, help='Enable debug mode (default: False or CTT_DEBUG)')
+    parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser window')
+
     # Support commands that inject a standalone '--' separator (e.g., some runners)
     forwarded = [a for a in sys.argv[1:] if a != '--']
     args = parser.parse_args(forwarded)
+
+    host = args.host or os.environ.get('CTT_HOST', '127.0.0.1')
+    port = args.port or int(os.environ.get('CTT_PORT', 5000))
+    debug = args.debug if args.debug is not None else (os.environ.get('CTT_DEBUG', 'false').lower() in ('true', '1', 'yes'))
 
     # Determine browser preference
     chosen = args.browser
@@ -567,13 +939,13 @@ if __name__ == '__main__':
         else:
             chosen = None  # use default
 
-    # Launch browser only after server is reachable to avoid connection errors
-    def _wait_then_open():
-        url = 'http://127.0.0.1:5000'
-        wait_for_server(url, timeout_seconds=20.0, interval=0.3)
-        open_browser_and_watch(chosen if chosen else '', url)
+    if not args.no_browser:
+        def _wait_then_open():
+            url = f'http://{host}:{port}'
+            wait_for_server(url, timeout_seconds=20.0, interval=0.3)
+            open_browser_and_watch(chosen if chosen else '', url)
 
-    threading.Thread(target=_wait_then_open, daemon=True).start()
+        threading.Thread(target=_wait_then_open, daemon=True).start()
 
-    # Start the Flask development server without reloader to avoid multiple windows
-    app.run(debug=True, use_reloader=False)
+    # Start the Flask server with production-safe defaults (debug disabled by default)
+    app.run(host=host, port=port, debug=debug, use_reloader=False)

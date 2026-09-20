@@ -6,8 +6,7 @@
   <link rel="icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
   <link rel="shortcut icon" href="{{ url_for('static', filename='fav.ico') }}" type="image/x-icon">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
     .about-page {
@@ -179,7 +178,7 @@
       <div class="profile-image-area">
         <div class="profile-image-container">
           {% if profile_image %}
-            <img src="{{ url_for('static', filename='uploads/' + profile_image) }}" alt="Ahmad Asmandar">
+            <img src="{{ url_for('uploaded_file', filename=profile_image) }}" alt="Ahmad Asmandar">
           {% else %}
             <div class="placeholder-image"><i class="fas fa-user-circle"></i></div>
           {% endif %}

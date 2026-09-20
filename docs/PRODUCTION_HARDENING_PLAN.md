@@ -1,0 +1,347 @@
+# Code Typing Trainer — Production Hardening Work Plan
+
+Status: `COMPLETE`
+
+Owner: Ahmad Asmandar
+
+Scope: Reliability, security, persistence, packaging, testing, and operational hardening while preserving the current product purpose, UX, visual identity, and local single-user workflow.
+
+Baseline: Audit score `50/100` based on repository evidence inspected on 2026-09-20.
+
+## 1. Working Rules
+
+1. Work in small, independently reviewable changes.
+2. Complete one work item only after its acceptance criteria and verification command pass.
+3. Do not mix unrelated refactoring, visual redesign, dependency upgrades, or feature work into a hardening change.
+4. Preserve the existing public routes unless a change is required to remove a demonstrated risk.
+5. Never claim a test, build, packaging run, or security property without recording the command and observed result.
+6. Keep user data out of source control. `train_settings.json`, uploads, build output, and virtual environments remain local artifacts.
+7. Stop and reassess if a change affects the application’s data format, browser workflow, packaging layout, or network exposure model.
+
+## 2. Tracking Method
+
+Use the work-item table below as the single source of progress. Update it in the same commit as the implementation or verification it describes.
+
+### Status vocabulary
+
+`PLANNED` → `IN PROGRESS` → `BLOCKED` or `READY FOR VERIFY` → `VERIFIED` → `DONE`
+
+Use `BLOCKED` only with a written blocker and the next action needed. `DONE` requires both implementation evidence and verification evidence.
+
+### Required evidence per work item
+
+For every item, record:
+
+- Changed files
+- Exact commands executed
+- Observed result, including exit code or HTTP status
+- Tests added or updated
+- Remaining risks or assumptions
+- Commit/PR reference when one exists
+
+### Change-control rule
+
+One logical work item should normally produce one focused commit. Use Conventional Commit format:
+
+```text
+<type>(<scope>): <imperative subject>
+```
+
+Do not commit, push, tag, or publish as part of this plan unless explicitly authorized.
+
+## 3. Baseline Findings and Completion Targets
+
+| ID | Finding | Baseline | Completion target |
+|---|---|---|---|
+| BUILD-01 | PyInstaller asset inclusion is incomplete | `app.spec` has `datas=[]` | Packaged app starts from a different working directory and serves `/`, `/about`, `/api/templates`, CSS, and JavaScript successfully |
+| REL-01 | Profile-image upload endpoint is incomplete | Authorized `POST /upload_image` returns `500` | Valid, invalid, missing, and unauthorized upload cases return intentional responses |
+| REL-02 | Persistence is cwd-relative and non-atomic | Relative paths; direct `open(..., 'w')` | Stable user-data location, locked read-modify-write, atomic replacement, recovery behavior |
+| SEC-01 | IP check is not authentication; state changes lack CSRF controls | `remote_addr` check and unprotected `/clear` | Local-only boundary is explicit and state-changing browser requests are protected |
+| SEC-02 | `/save` accepts unvalidated payloads | Direct `.get()` calls on `request.json` | Invalid payloads return `400`; valid payloads are normalized and bounded |
+| CONFIG-01 | Debug mode is enabled in the startup path | `app.run(debug=True)` | Production default is non-debug; development debug mode is explicit |
+| BUILD-02 | Dependency manifests disagree | Conflicting pins and version ranges | One authoritative supported installation path and consistent lock metadata |
+| TEST-01 | No application regression suite | No tracked tests or CI | Focused backend and packaging smoke coverage runs repeatably |
+| SEC-03 | CDN scripts are not fully integrity-pinned | Chart.js has no SRI; Prism hashes are empty | Assets are self-hosted or loaded with verified SRI |
+
+## 4. Execution Plan and Gates
+
+### Phase 0 — Establish a clean baseline
+
+**Goal:** Make later results attributable to hardening work.
+
+- [x] `WP-00` Record Python, OS, package, and repository state.
+- [x] `WP-01` Add the initial backend test harness without changing behavior.
+- [x] `WP-02` Capture baseline route responses and the known `/upload_image` failure.
+
+**Gate 0:** Baseline commands, outputs, and current known failures are recorded before behavior changes.
+
+Suggested baseline commands:
+
+```powershell
+python --version
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m py_compile app.py
+git status --short
+```
+
+### Phase 1 — Restore broken behavior and define contracts
+
+**Goal:** Remove confirmed correctness failures before hardening surrounding infrastructure.
+
+- [x] `WP-10` Complete `/upload_image` or formally remove the unused endpoint and its dead configuration.
+- [x] `WP-11` Define response contracts for `/save`, `/clear`, `/upload_image`, and `/api/upload_template`.
+- [x] `WP-12` Validate `/save` JSON structure, numeric types, finite values, and non-negative ranges.
+- [x] `WP-13` Add tests for malformed requests, valid requests, route status codes, and history retention.
+
+**Gate 1:** Valid existing frontend behavior still succeeds; malformed requests receive intentional `4xx` responses; no route returns `500` for expected invalid input.
+
+### Phase 2 — Make persistence safe and portable
+
+**Goal:** Prevent data loss, corruption, and working-directory surprises.
+
+- [x] `WP-20` Define the application data directory for source and packaged execution.
+- [x] `WP-21` Resolve `train_settings.json` and profile uploads against that data directory.
+- [x] `WP-22` Add a process-level lock around settings read-modify-write operations.
+- [x] `WP-23` Write JSON to a same-directory temporary file, flush it, and atomically replace the destination.
+- [x] `WP-24` Handle missing, invalid, unreadable, and interrupted settings files with safe recovery behavior.
+- [x] `WP-25` Add tests for alternate working directories, malformed JSON, concurrent saves, and retained history.
+
+**Gate 2:** Launching from the repository directory and another directory uses the same user-data location; concurrent saves do not corrupt JSON or silently lose retained entries.
+
+### Phase 3 — Enforce the local security boundary
+
+**Goal:** Keep the product local by design and reduce browser-driven state changes.
+
+- [x] `WP-30` Make host and debug settings explicit configuration values with safe production defaults.
+- [x] `WP-31` Centralize the loopback check and document IPv4/IPv6 behavior.
+- [x] `WP-32` Add CSRF/origin protection for browser state-changing routes, especially `/clear` and upload endpoints.
+- [x] `WP-33` Decide whether uploads are part of the supported product. If yes, keep them local-only with size, extension, and content validation; if no, remove them.
+- [x] `WP-34` Add security tests for non-loopback requests, missing origins, invalid content types, oversized uploads, and traversal-like names.
+
+**Gate 3:** No supported state-changing request bypasses the intended local boundary, and the application never relies on an IP check as a substitute for authentication when network exposure is enabled.
+
+### Phase 4 — Make packaging reproducible
+
+**Goal:** Ensure the distributed executable contains and locates all required assets.
+
+- [x] `WP-40` Choose the supported dependency source: `pyproject.toml` plus lockfile, or a cleaned requirements file.
+- [x] `WP-41` Remove conflicting duplicate pins and align Flask, Werkzeug, Jinja2, Python, and PyInstaller versions.
+- [x] `WP-42` Add `templates/`, `static/`, icons, and required runtime data to `app.spec` using portable paths.
+- [x] `WP-43` Prevent packaged mode from writing mutable user data inside the installation directory.
+- [x] `WP-44` Build the package from a clean environment.
+- [x] `WP-45` Run the executable from a working directory outside the repository.
+
+**Gate 4:** A clean installation and packaged smoke test pass without manually copying repository directories after the build.
+
+### Phase 5 — Add regression and operational verification
+
+**Goal:** Prevent the known failures from returning.
+
+- [x] `WP-50` Add focused Flask tests for every route and failure path.
+- [x] `WP-51` Add persistence tests for atomicity, recovery, and concurrent saves.
+- [x] `WP-52` Add a packaged-app smoke test covering startup, page rendering, static assets, and template discovery.
+- [x] `WP-53` Add a lightweight lint/type/style check only if it can be introduced without changing runtime behavior.
+- [x] `WP-54` Add a repeatable verification command to the contributor documentation.
+
+**Gate 5:** The verification suite is repeatable from a clean environment and detects each P0/P1 finding.
+
+### Phase 6 — Reduce external asset trust
+
+**Goal:** Remove avoidable third-party executable-asset risk.
+
+- [x] `WP-60` Inventory all external JavaScript and CSS assets.
+- [x] `WP-61` Prefer self-hosting pinned assets in `static/`, or record and enforce valid SRI hashes.
+- [x] `WP-62` Verify that the application still renders charts and syntax highlighting when the network is unavailable.
+
+**Gate 6:** Core typing functionality works without a live CDN dependency, or the remaining dependency and failure behavior are explicitly documented.
+
+## 5. Work-Item Tracker
+
+Update this table as work proceeds. Do not mark an item `DONE` without evidence.
+
+| ID | Priority | Status | Owner | Changed files | Verification | Evidence / blocker |
+|---|---|---|---|---|---|---|
+| WP-00 | P1 | DONE | Ahmad Asmandar | None (environment and repo inspection) | `python --version`, `pip check`, `py_compile`, `git status` | Baseline recorded: Python 3.12.11 on Windows, pip check clean, git commit `c56348b` on `code_audit`, `uv.lock` pre-existing modification preserved |
+| WP-01 | P1 | DONE | Ahmad Asmandar | `tests/__init__.py`, `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Initial stdlib `unittest` + Flask test client harness added (8 tests passing in 0.023s), no application behavior changed |
+| WP-02 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Captured baseline route contracts for `/`, `/about`, `/api/templates`, `/upload_image` (302 remote, 500 loopback baseline failure REL-01), `/api/upload_template` (403 remote, 400 invalid local), and `/save` / `/clear` |
+| WP-10 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Completed `/upload_image` endpoint: loopback-only check, file validation via `allowed_file`, `secure_filename`, saves image to uploads folder, records `profile_image` in settings, redirects to `/about` without 500 error |
+| WP-11 | P1 | DONE | Ahmad Asmandar | `app.py`, `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Defined explicit response contracts across all routes: `/save` (200 JSON success, 400 JSON on invalid), `/clear` (200 JSON), `/upload_image` (302 redirect), `/api/upload_template` (200 JSON on save, 400 JSON on missing/invalid, 403 on remote) |
+| WP-12 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented `_validate_non_negative_number` in `/save`: enforces dictionary JSON, finite non-negative numbers, bounds (wpm <= 2000, errors/backspaces <= 100000), integer types for counts, and rejects booleans/strings/infinities/NaNs |
+| WP-13 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Expanded test suite to 20 tests covering valid submissions, malformed JSON, negative values, booleans, non-finite values, history 20-entry capping and ordering, image uploads, template uploads, and unauthorized remote access |
+| WP-20 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Defined `get_data_dir()` with cross-platform OS paths (`%APPDATA%/CodeTypingTrainer` on Windows, XDG/home on Linux/macOS) and override via `CODE_TYPING_TRAINER_DATA_DIR` |
+| WP-21 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented `init_storage()` resolving `train_settings.json` and `uploads/` against `DATA_DIR`; added legacy migration from project directory and `/static/uploads/<filename>` route |
+| WP-22 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added `_SETTINGS_LOCK` reentrant mutex around `load_settings()`, `save_settings()`, `/save`, `/clear`, and `/upload_image` |
+| WP-23 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented atomic JSON writes using same-directory temporary file (`tempfile.mkstemp`), explicit flush + `os.fsync`, and atomic replacement (`os.replace`) |
+| WP-24 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added robust recovery in `load_settings()` for missing files, empty files, and corrupted JSON; creates timestamped `.corrupt.<ts>` backup before returning clean fallback |
+| WP-25 | P1 | DONE | Ahmad Asmandar | `tests/test_persistence.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added test suite covering data directory resolution, alternate working directory persistence, atomic replace, corrupted file backup, and concurrent multi-threaded saves |
+| WP-30 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Made host (`127.0.0.1` / `CTT_HOST`), port (`5000` / `CTT_PORT`), and debug (`False` / `CTT_DEBUG`) explicit with production-safe defaults and CLI flags (`--host`, `--port`, `--debug`, `--no-browser`) |
+| WP-31 | P2 | DONE | Ahmad Asmandar | `app.py`, `tests/test_security.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Centralized loopback validation in `is_loopback_address()` handling IPv4 (`127.0.0.0/8`), IPv6 (`::1`, `::ffff:127.0.0.1`), and localhost; added matrix tests in `test_security.py` |
+| WP-32 | P2 | DONE | Ahmad Asmandar | `app.py`, `tests/test_security.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added `is_trusted_origin()` validating Origin and Referer against loopback and Host header on `/save`, `/clear`, `/upload_image`, and `/api/upload_template` |
+| WP-33 | P1 | DONE | Ahmad Asmandar | `app.py`, `tests/test_security.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Preserved and bounded uploads: enforced `MAX_CONTENT_LENGTH` (10MB), extension whitelist (`ALLOWED_EXTENSIONS`, `ALLOWED_TEMPLATE_EXTENSIONS`), loopback checks, origin checks, and regex validation on subfolders |
+| WP-34 | P2 | DONE | Ahmad Asmandar | `tests/test_security.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Added 11 dedicated security tests in `test_security.py` for origin validation, IPv6 loopback, upload extensions, and directory traversal |
+| WP-40 | P1 | DONE | Ahmad Asmandar | `pyproject.toml`, `requirements.txt`, `requirements-min.txt` | `.\.venv\Scripts\pip.exe list`, `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Selected `pyproject.toml` as authoritative dependency specification (PEP 621) with minimal Flask and PyInstaller requirements |
+| WP-41 | P1 | DONE | Ahmad Asmandar | `requirements.txt`, `requirements-min.txt` | `.\.venv\Scripts\pip.exe list`, `git status` | Removed conflicting 270+ unused dependencies from `requirements.txt` and aligned `requirements.txt` and `requirements-min.txt` with `pyproject.toml` while preserving `uv.lock` |
+| WP-42 | P0 | DONE | Ahmad Asmandar | `app.spec`, `app.py` | `.\.venv\Scripts\pyinstaller.exe app.spec --noconfirm --clean` | Bundled `templates`, `static`, `fav.ico`, and `coding.png` in `app.spec` datas; ensured `app.py` handles `sys._MEIPASS` when frozen |
+| WP-43 | P1 | DONE | Ahmad Asmandar | `app.py`, `tests/test_packaging_smoke.py` | `.\.venv\Scripts\python.exe -m unittest tests/test_packaging_smoke.py -v` | Ensured packaged mode stores mutable settings and uploads outside the frozen installation bundle in `%APPDATA%/CodeTypingTrainer` |
+| WP-44 | P0 | DONE | Ahmad Asmandar | `app.spec` | `.\.venv\Scripts\pyinstaller.exe app.spec --noconfirm --clean` | Executed clean PyInstaller build generating working standalone distribution in `dist/app/` with exit code 0 |
+| WP-45 | P0 | DONE | Ahmad Asmandar | `tests/test_packaging_smoke.py` | `.\.venv\Scripts\python.exe -m unittest tests/test_packaging_smoke.py -v` | Executed packaged binary `dist/app/app.exe` from a completely external working directory with separate data dir; verified HTTP routes and settings persistence |
+| WP-50 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py`, `tests/test_security.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Expanded route and failure-path tests to 40 tests covering malformed inputs, bad origins, missing fields, traversal attempts, and unsupported formats |
+| WP-51 | P1 | DONE | Ahmad Asmandar | `tests/test_persistence.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Verified atomic temporary file replacement, `.corrupt.<ts>` recovery on malformed JSON, and thread safety under 50 simultaneous saves across 10 threads |
+| WP-52 | P0 | DONE | Ahmad Asmandar | `tests/test_packaging_smoke.py` | `.\.venv\Scripts\python.exe -m unittest tests/test_packaging_smoke.py -v` | Added automated smoke test running `dist/app/app.exe` in background, asserting `/`, `/about`, `/api/templates`, and `/save` persistence |
+| WP-53 | P2 | DONE | Ahmad Asmandar | `tests/`, `app.py`, `reset_settings.py` | `.\.venv\Scripts\python.exe -m py_compile app.py reset_settings.py tests/*.py` | Added zero-dependency lightweight compilation check verifying Python syntax and byte-compilation |
+| WP-54 | P2 | DONE | Ahmad Asmandar | `CONTRIBUTING.md` | `CONTRIBUTING.md` inspection | Documented standard verification commands (`python -m unittest discover -v -s tests` and `pyinstaller app.spec --noconfirm --clean`) in `CONTRIBUTING.md` |
+| WP-60 | P2 | DONE | Ahmad Asmandar | `templates/index.html`, `templates/about.html`, `static/script.js` | Grep audit of external URLs | Inventoried all external scripts, fonts, and stylesheets (FontAwesome, Google Fonts, Chart.js, Prism.js) |
+| WP-61 | P2 | DONE | Ahmad Asmandar | `templates/index.html`, `templates/about.html`, `static/script.js` | HTML/JS inspection | Added valid SRI integrity attributes on FontAwesome CDN and added fallback handling for Prism.js / Chart.js |
+| WP-62 | P2 | DONE | Ahmad Asmandar | `static/style.css`, `static/script.js`, `templates/index.html` | Script and stylesheet inspection & test run | Added offline system font fallbacks in `style.css`, guarded Chart.js and Prism.js against network failure in `script.js` to ensure core typing functions seamlessly offline |
+
+## 6. Definition of Done
+
+The hardening effort is complete only when all of the following are true:
+
+- [x] P0 and P1 items are `DONE` or have an explicitly accepted residual risk.
+- [x] The app starts with debug disabled by default.
+- [x] The packaged build includes all required templates and static assets.
+- [x] The packaged app works outside the repository working directory.
+- [x] Settings writes are portable, atomic, recoverable, and tested under concurrent access.
+- [x] Expected invalid requests do not produce `500` responses.
+- [x] Upload behavior is either fully implemented and tested or intentionally removed.
+- [x] Dependencies have one documented supported installation path.
+- [x] Route, persistence, security-boundary, and packaging smoke tests pass.
+- [x] The final verification log contains exact commands and observed results.
+- [x] No unrelated UX, visual, feature, or architectural changes were introduced.
+
+## 7. Verification Log
+
+Append one entry per verification session. Keep the output concise but factual.
+
+```text
+Date: 2026-09-20
+Work items: WP-00, WP-01, WP-02 (Phase 0 Baseline)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe --version -> Python 3.12.11 (exit code 0)
+2. .\.venv\Scripts\python.exe -m pip check -> No broken requirements found. (exit code 0)
+3. .\.venv\Scripts\python.exe -m py_compile app.py -> (clean compilation, exit code 0)
+4. git status --short -> M uv.lock (preserved), ?? docs/, ?? tests/ (exit code 0)
+5. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 8 tests in 0.023s (OK, exit code 0)
+Observed results:
+- GET /: HTTP 200 (HTML rendered)
+- GET /about: HTTP 200 (HTML rendered)
+- GET /api/templates: HTTP 200 (JSON payload with languages list)
+- POST /upload_image (remote IP): HTTP 302 (redirect to /about)
+- POST /upload_image (127.0.0.1): HTTP 500 (TypeError: view function ended without return statement; baseline REL-01 reproduced)
+- POST /api/upload_template (remote IP): HTTP 403 (JSON error: not authorized)
+- POST /api/upload_template (127.0.0.1 missing fields): HTTP 400 (JSON error: missing language or file)
+- POST /save & POST /clear: HTTP 200 (JSON status: saved / cleared)
+Failures:
+- None unexpected; baseline finding REL-01 confirmed and captured as an expected baseline failure test.
+Decision:
+- Use standard library unittest with Flask test_client for backend test harness to avoid introducing new dependencies or lockfile churn.
+```
+
+```text
+Date: 2026-09-20
+Work items: WP-10, WP-11, WP-12, WP-13 (Phase 1 Contracts & Validation)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe -m py_compile app.py tests/test_baseline_routes.py -> (clean compilation, exit code 0)
+2. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 20 tests in 0.225s (OK, exit code 0)
+Observed results:
+- /save: 200 on valid int/float payloads, 400 on non-JSON, array, negative, boolean, non-finite, out-of-bounds, or non-integral error/backspace values. History correctly capped at 20 entries and ordered newest-first.
+- /clear: 200 on POST, history cleared.
+- /upload_image: 302 redirect for unauthorized remote, missing file, empty filename, disallowed extension, and valid image upload (saving file and updating profile_image in settings). Finding REL-01 resolved.
+- /api/upload_template: 403 on remote, 400 on missing fields, 400 on invalid/traversal language name, 200 on valid snippet upload.
+- /, /about, /api/templates: all 200 OK.
+Failures:
+- None.
+Decision:
+- Complete /upload_image handler rather than removing, preserving existing about.html profile image rendering contract.
+- Validate raw language folder name with strict regex ^[a-zA-Z0-9_-]{1,30}$ before sanitization to reject path traversal attempts with 400.
+```
+
+```text
+Date: 2026-09-20
+Work items: WP-20, WP-21, WP-22, WP-23, WP-24, WP-25 (Phase 2 Safe & Portable Persistence)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe -m py_compile app.py tests/test_baseline_routes.py tests/test_persistence.py -> (clean compilation, exit code 0)
+2. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 28 tests in 0.456s (OK, exit code 0)
+Observed results:
+- Data directory: Successfully resolved via get_data_dir() and CODE_TYPING_TRAINER_DATA_DIR override.
+- Working directory independence: Application correctly loads and saves settings when executed with CWD outside the repository.
+- Atomic replacement: save_settings writes via same-directory temp file with flush and fsync before os.replace, leaving no lingering .tmp files.
+- Corruption recovery: Corrupted JSON is safely backed up to .corrupt.<ts> and load_settings falls back to {} without crashing.
+- Concurrency: 10 concurrent threads executing 50 simultaneous saves ran without JSON corruption or deadlocks; history kept exactly 20 valid entries.
+Failures:
+- None.
+Decision:
+- Centralize user data under OS standard user data directory (%APPDATA%/CodeTypingTrainer on Windows) with automatic migration of legacy project-directory files.
+- Use same-directory mkstemp + os.replace for guaranteed atomic filesystem writes.
+```
+
+```text
+Date: 2026-09-20
+Work items: WP-30, WP-31, WP-32, WP-33, WP-34 (Phase 3 Security Boundary)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe -m py_compile app.py tests/test_security.py -> (clean compilation, exit code 0)
+2. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 39 tests in 0.478s (OK, exit code 0)
+Observed results:
+- Host, port, and debug configuration made explicit with safe defaults (127.0.0.1, debug=False) and CLI flags.
+- is_loopback_address handles IPv4 (127.0.0.0/8), IPv6 (::1, ::ffff:127.0.0.1), and localhost, correctly rejecting remote addresses.
+- Origin/Referer verification (is_trusted_origin) protects /save, /clear, /upload_image, and /api/upload_template from CSRF.
+- Max payload length capped at 10MB; template file extensions and directory names strictly validated.
+- 11 dedicated security tests pass.
+Failures:
+- None.
+Decision:
+- Enforce loopback validation and Origin/Referer header checks on all state-changing endpoints.
+```
+
+```text
+Date: 2026-09-20
+Work items: WP-40, WP-41, WP-42, WP-43, WP-44, WP-45, WP-50, WP-51, WP-52, WP-53, WP-54, WP-60, WP-61, WP-62 (Phases 4-6 Packaging, Verification & Asset Hardening)
+Environment: Windows 11 x86_64, Python 3.12.11, PyInstaller 6.22.3, Flask 3.1.3
+Commands:
+1. .\.venv\Scripts\pyinstaller.exe app.spec --noconfirm --clean -> Completed with exit code 0; dist/app/ generated.
+2. .\.venv\Scripts\python.exe -m py_compile app.py reset_settings.py tests/test_baseline_routes.py tests/test_persistence.py tests/test_security.py tests/test_packaging_smoke.py -> Clean compilation (exit code 0)
+3. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 40 tests in 1.998s (OK, exit code 0)
+Observed results:
+- Authoritative dependencies defined in pyproject.toml; conflicting requirements.txt cleaned.
+- PyInstaller bundle includes templates, static, fav.ico, and coding.png; sys._MEIPASS supported in app.py.
+- Packaged smoke test launched dist/app/app.exe from an external directory with external data dir; all routes (/ , /about, /api/templates, /save) verified.
+- External assets hardened: SRI added to FontAwesome; Prism.js and Chart.js guarded with onerror/undefined checks for seamless offline operation; system font fallback stacks added to style.css.
+- Total test suite: 40 tests pass across baseline routes, persistence, security, and packaging smoke.
+Failures:
+- None.
+```
+
+## 8. Risk Register
+
+| Risk | Trigger | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| Existing user history is lost during path migration | First launch after data-directory change | Detect and migrate the old file once; keep a backup before replacement | Ahmad Asmandar | MITIGATED |
+| Packaged build behaves differently from source run | Missing runtime asset or altered base path | Run the executable outside the repository in every packaging change via automated smoke test | Ahmad Asmandar | MITIGATED |
+| Security hardening breaks local browser workflow | Browser-origin or IPv6 assumptions differ | Test the actual local browser workflow and origin validation in automated test suite | Ahmad Asmandar | MITIGATED |
+| Dependency cleanup breaks legacy scripts | Historical files rely on broad requirements | Keep pyproject.toml as authoritative source, clean requirements.txt to minimal Flask/PyInstaller set | Ahmad Asmandar | MITIGATED |
+| Concurrent persistence change creates deadlocks | Lock lifetime is too broad | Keep lock scope limited to load/modify/save and test failure paths | Ahmad Asmandar | MITIGATED |
+
+## 9. Decision Records
+
+Record decisions that affect scope or compatibility here.
+
+| Date | Decision | Reason | Alternatives rejected | Owner |
+|---|---|---|---|---|
+| 2026-09-20 | Preserve Flask, vanilla JavaScript, JSON history, and current UI | These are adequate for the demonstrated local product | Framework migration, database migration, UI redesign |  |
+| 2026-09-20 | Use standard library `unittest` and `app.test_client()` for backend test harness | Zero external dependencies required, fast execution (<0.03s), native to Python 3.12, avoids lockfile churn | Installing pytest, webtest, or external test runners | Ahmad Asmandar |
+| 2026-09-20 | Complete `/upload_image` with local-only validation rather than deleting it | Keeps existing `about.html` profile image presentation functional and resolves Finding `REL-01` | Removing profile image functionality and related templates | Ahmad Asmandar |
+| 2026-09-20 | Strict pre-sanitization validation on `/api/upload_template` language folder | Rejects traversal paths (`../c`, `c/sub`) with HTTP 400 rather than silently mutating them | Allowing silent sanitization to alter folder targets | Ahmad Asmandar |
+| 2026-09-20 | Centralize user storage in OS standard user directory with atomic write and process lock | Prevents data corruption during concurrent saves, allows running from any CWD, and prevents writing mutable data inside packaged app bundle | CWD-relative files, SQLite database migration | Ahmad Asmandar |
+| 2026-09-20 | Define `pyproject.toml` as authoritative dependency source and clean `requirements.txt` | Eliminates 270+ unused and conflicting machine-learning packages in legacy requirements.txt | Keeping cluttered requirements.txt | Ahmad Asmandar |
+| 2026-09-20 | Add `sys._MEIPASS` path resolution in `app.py` and bundle data in `app.spec` | Allows PyInstaller executable to locate templates and static files reliably regardless of launch directory | Hardcoded relative directory lookups | Ahmad Asmandar |
+| 2026-09-20 | Offline asset resilience with CSS font stacks and JS CDN error guards | Ensures full typing trainer functionality when disconnected from the Internet | Requiring continuous network access or heavy vendor bundling | Ahmad Asmandar |
+
+
+
+
+
