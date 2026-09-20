@@ -88,10 +88,10 @@ git status --short
 
 **Goal:** Remove confirmed correctness failures before hardening surrounding infrastructure.
 
-- [ ] `WP-10` Complete `/upload_image` or formally remove the unused endpoint and its dead configuration.
-- [ ] `WP-11` Define response contracts for `/save`, `/clear`, `/upload_image`, and `/api/upload_template`.
-- [ ] `WP-12` Validate `/save` JSON structure, numeric types, finite values, and non-negative ranges.
-- [ ] `WP-13` Add tests for malformed requests, valid requests, route status codes, and history retention.
+- [x] `WP-10` Complete `/upload_image` or formally remove the unused endpoint and its dead configuration.
+- [x] `WP-11` Define response contracts for `/save`, `/clear`, `/upload_image`, and `/api/upload_template`.
+- [x] `WP-12` Validate `/save` JSON structure, numeric types, finite values, and non-negative ranges.
+- [x] `WP-13` Add tests for malformed requests, valid requests, route status codes, and history retention.
 
 **Gate 1:** Valid existing frontend behavior still succeeds; malformed requests receive intentional `4xx` responses; no route returns `500` for expected invalid input.
 
@@ -164,10 +164,10 @@ Update this table as work proceeds. Do not mark an item `DONE` without evidence.
 | WP-00 | P1 | DONE | Ahmad Asmandar | None (environment and repo inspection) | `python --version`, `pip check`, `py_compile`, `git status` | Baseline recorded: Python 3.12.11 on Windows, pip check clean, git commit `c56348b` on `code_audit`, `uv.lock` pre-existing modification preserved |
 | WP-01 | P1 | DONE | Ahmad Asmandar | `tests/__init__.py`, `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Initial stdlib `unittest` + Flask test client harness added (8 tests passing in 0.023s), no application behavior changed |
 | WP-02 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Captured baseline route contracts for `/`, `/about`, `/api/templates`, `/upload_image` (302 remote, 500 loopback baseline failure REL-01), `/api/upload_template` (403 remote, 400 invalid local), and `/save` / `/clear` |
-| WP-10 | P1 | PLANNED |  |  |  |  |
-| WP-11 | P1 | PLANNED |  |  |  |  |
-| WP-12 | P1 | PLANNED |  |  |  |  |
-| WP-13 | P1 | PLANNED |  |  |  |  |
+| WP-10 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Completed `/upload_image` endpoint: loopback-only check, file validation via `allowed_file`, `secure_filename`, saves image to uploads folder, records `profile_image` in settings, redirects to `/about` without 500 error |
+| WP-11 | P1 | DONE | Ahmad Asmandar | `app.py`, `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Defined explicit response contracts across all routes: `/save` (200 JSON success, 400 JSON on invalid), `/clear` (200 JSON), `/upload_image` (302 redirect), `/api/upload_template` (200 JSON on save, 400 JSON on missing/invalid, 403 on remote) |
+| WP-12 | P1 | DONE | Ahmad Asmandar | `app.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Implemented `_validate_non_negative_number` in `/save`: enforces dictionary JSON, finite non-negative numbers, bounds (wpm <= 2000, errors/backspaces <= 100000), integer types for counts, and rejects booleans/strings/infinities/NaNs |
+| WP-13 | P1 | DONE | Ahmad Asmandar | `tests/test_baseline_routes.py` | `.\.venv\Scripts\python.exe -m unittest discover -v -s tests` | Expanded test suite to 20 tests covering valid submissions, malformed JSON, negative values, booleans, non-finite values, history 20-entry capping and ordering, image uploads, template uploads, and unauthorized remote access |
 | WP-20 | P1 | PLANNED |  |  |  |  |
 | WP-21 | P1 | PLANNED |  |  |  |  |
 | WP-22 | P1 | PLANNED |  |  |  |  |
@@ -239,6 +239,26 @@ Decision:
 - Use standard library unittest with Flask test_client for backend test harness to avoid introducing new dependencies or lockfile churn.
 ```
 
+```text
+Date: 2026-09-20
+Work items: WP-10, WP-11, WP-12, WP-13 (Phase 1 Contracts & Validation)
+Environment: Windows 11 x86_64, Python 3.12.11, Flask 3.1.3, Werkzeug 3.1.8
+Commands:
+1. .\.venv\Scripts\python.exe -m py_compile app.py tests/test_baseline_routes.py -> (clean compilation, exit code 0)
+2. .\.venv\Scripts\python.exe -m unittest discover -v -s tests -> Ran 20 tests in 0.225s (OK, exit code 0)
+Observed results:
+- /save: 200 on valid int/float payloads, 400 on non-JSON, array, negative, boolean, non-finite, out-of-bounds, or non-integral error/backspace values. History correctly capped at 20 entries and ordered newest-first.
+- /clear: 200 on POST, history cleared.
+- /upload_image: 302 redirect for unauthorized remote, missing file, empty filename, disallowed extension, and valid image upload (saving file and updating profile_image in settings). Finding REL-01 resolved.
+- /api/upload_template: 403 on remote, 400 on missing fields, 400 on invalid/traversal language name, 200 on valid snippet upload.
+- /, /about, /api/templates: all 200 OK.
+Failures:
+- None.
+Decision:
+- Complete /upload_image handler rather than removing, preserving existing about.html profile image rendering contract.
+- Validate raw language folder name with strict regex ^[a-zA-Z0-9_-]{1,30}$ before sanitization to reject path traversal attempts with 400.
+```
+
 ## 8. Risk Register
 
 | Risk | Trigger | Mitigation | Owner | Status |
@@ -257,5 +277,8 @@ Record decisions that affect scope or compatibility here.
 |---|---|---|---|---|
 | 2026-09-20 | Preserve Flask, vanilla JavaScript, JSON history, and current UI | These are adequate for the demonstrated local product | Framework migration, database migration, UI redesign |  |
 | 2026-09-20 | Use standard library `unittest` and `app.test_client()` for backend test harness | Zero external dependencies required, fast execution (<0.03s), native to Python 3.12, avoids lockfile churn | Installing pytest, webtest, or external test runners | Ahmad Asmandar |
+| 2026-09-20 | Complete `/upload_image` with local-only validation rather than deleting it | Keeps existing `about.html` profile image presentation functional and resolves Finding `REL-01` | Removing profile image functionality and related templates | Ahmad Asmandar |
+| 2026-09-20 | Strict pre-sanitization validation on `/api/upload_template` language folder | Rejects traversal paths (`../c`, `c/sub`) with HTTP 400 rather than silently mutating them | Allowing silent sanitization to alter folder targets | Ahmad Asmandar |
+
 
 

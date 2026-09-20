@@ -15,6 +15,7 @@ import argparse
 
 # Standard library imports
 import json
+import math
 import os
 import re
 import secrets
@@ -183,26 +184,64 @@ def index():
     return render_template('index.html', history=history)
 
 
+def _validate_non_negative_number(val, field_name: str, max_val: float = 10000.0, is_int: bool = False):
+    """
+    Validate that a value is a finite, non-negative number within bounds.
+    Rejects booleans and non-numeric types.
+    """
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return False, f"field '{field_name}' must be a number"
+    if not math.isfinite(val):
+        return False, f"field '{field_name}' must be finite"
+    if val < 0 or val > max_val:
+        return False, f"field '{field_name}' must be between 0 and {max_val}"
+    if is_int and isinstance(val, float) and not val.is_integer():
+        return False, f"field '{field_name}' must be an integer"
+    return True, None
+
+
 @app.route('/save', methods=['POST'])
 def save():
     """
     API endpoint to save typing test results.
 
-    Receives typing test results via JSON POST request, creates a new history entry
-    with the current timestamp, and saves it to the settings file. Limits history
-    to the 20 most recent entries.
+    Receives typing test results via JSON POST request, validates payload
+    structure and numeric ranges, creates a new history entry with current timestamp,
+    and saves it to the settings file. Limits history to the 20 most recent entries.
 
     Returns:
-        JSON response: Confirmation of save with formatted timestamp
+        JSON response: Confirmation of save with formatted timestamp (200) or error (400)
     """
-    data = request.json
+    data = request.get_json(silent=True)
+    if data is None or not isinstance(data, dict):
+        return jsonify({'error': 'invalid JSON payload'}), 400
+
+    wpm_raw = data.get('wpm', 0)
+    valid, err = _validate_non_negative_number(wpm_raw, 'wpm', max_val=2000.0)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    errors_raw = data.get('errors', 0)
+    valid, err = _validate_non_negative_number(errors_raw, 'errors', max_val=100000.0, is_int=True)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    backspaces_raw = data.get('backspaces', 0)
+    valid, err = _validate_non_negative_number(backspaces_raw, 'backspaces', max_val=100000.0, is_int=True)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    # Normalize numeric values
+    wpm = int(wpm_raw) if (isinstance(wpm_raw, int) or (isinstance(wpm_raw, float) and wpm_raw.is_integer())) else round(float(wpm_raw), 1)
+    errors = int(errors_raw)
+    backspaces = int(backspaces_raw)
 
     # Create a new entry with current datetime in ISO format
     timestamp = datetime.now().isoformat()
     entry = {
-        'wpm': data.get('wpm', 0),
-        'errors': data.get('errors', 0),
-        'backspaces': data.get('backspaces', 0),
+        'wpm': wpm,
+        'errors': errors,
+        'backspaces': backspaces,
         'timestamp': timestamp,
         'display_timestamp': datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M'),
     }
@@ -266,9 +305,30 @@ def upload_image():
     Returns:
         redirect: Redirects back to the About page after processing
     """
-    # Simple admin check - you can implement a more secure method if needed
+    # Simple admin check - localhost only
     if request.remote_addr != '127.0.0.1':
         return redirect(url_for('about'))
+
+    if 'file' not in request.files:
+        return redirect(url_for('about'))
+
+    file = request.files['file']
+    if not file or file.filename == '' or not allowed_file(file.filename):
+        return redirect(url_for('about'))
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return redirect(url_for('about'))
+
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(file_path)
+
+    settings = load_settings()
+    settings['profile_image'] = filename
+    save_settings(settings)
+
+    return redirect(url_for('about'))
 
 
 def _read_text_file(path: str) -> str:
@@ -399,12 +459,13 @@ def api_upload_template():
     if not language or not upfile or upfile.filename == '':
         return jsonify({"error": "missing language or file"}), 400
 
-    # Sanitize language and filename
-    safe_lang = secure_filename(language).lower()
-    # Strictly validate language folder name: allow only letters, digits, dash and underscore
-    if not re.fullmatch(r"[a-z0-9_-]{1,30}", safe_lang or ""):
+    # Strictly validate language folder name: allow only letters, digits, dash and underscore (1-30 chars)
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,30}", language):
         return jsonify({"error": "invalid language name"}), 400
+    safe_lang = secure_filename(language).lower()
     safe_name = secure_filename(upfile.filename)
+    if not safe_name:
+        return jsonify({"error": "invalid file name"}), 400
     lang_dir = os.path.join(CODE_TEMPLATES_DIR, safe_lang)
     os.makedirs(lang_dir, exist_ok=True)
     dest_path = os.path.join(lang_dir, safe_name)
