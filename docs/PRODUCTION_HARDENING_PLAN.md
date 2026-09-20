@@ -1,6 +1,6 @@
 # Code Typing Trainer — Production Hardening Work Plan
 
-Status: `PLANNED`
+Status: `COMPLETE`
 
 Owner: Ahmad Asmandar
 
@@ -112,11 +112,11 @@ git status --short
 
 **Goal:** Keep the product local by design and reduce browser-driven state changes.
 
-- [ ] `WP-30` Make host and debug settings explicit configuration values with safe production defaults.
-- [ ] `WP-31` Centralize the loopback check and document IPv4/IPv6 behavior.
-- [ ] `WP-32` Add CSRF/origin protection for browser state-changing routes, especially `/clear` and upload endpoints.
-- [ ] `WP-33` Decide whether uploads are part of the supported product. If yes, keep them local-only with size, extension, and content validation; if no, remove them.
-- [ ] `WP-34` Add security tests for non-loopback requests, missing origins, invalid content types, oversized uploads, and traversal-like names.
+- [x] `WP-30` Make host and debug settings explicit configuration values with safe production defaults.
+- [x] `WP-31` Centralize the loopback check and document IPv4/IPv6 behavior.
+- [x] `WP-32` Add CSRF/origin protection for browser state-changing routes, especially `/clear` and upload endpoints.
+- [x] `WP-33` Decide whether uploads are part of the supported product. If yes, keep them local-only with size, extension, and content validation; if no, remove them.
+- [x] `WP-34` Add security tests for non-loopback requests, missing origins, invalid content types, oversized uploads, and traversal-like names.
 
 **Gate 3:** No supported state-changing request bypasses the intended local boundary, and the application never relies on an IP check as a substitute for authentication when network exposure is enabled.
 
@@ -124,12 +124,12 @@ git status --short
 
 **Goal:** Ensure the distributed executable contains and locates all required assets.
 
-- [ ] `WP-40` Choose the supported dependency source: `pyproject.toml` plus lockfile, or a cleaned requirements file.
-- [ ] `WP-41` Remove conflicting duplicate pins and align Flask, Werkzeug, Jinja2, Python, and PyInstaller versions.
-- [ ] `WP-42` Add `templates/`, `static/`, icons, and required runtime data to `app.spec` using portable paths.
-- [ ] `WP-43` Prevent packaged mode from writing mutable user data inside the installation directory.
-- [ ] `WP-44` Build the package from a clean environment.
-- [ ] `WP-45` Run the executable from a working directory outside the repository.
+- [x] `WP-40` Choose the supported dependency source: `pyproject.toml` plus lockfile, or a cleaned requirements file.
+- [x] `WP-41` Remove conflicting duplicate pins and align Flask, Werkzeug, Jinja2, Python, and PyInstaller versions.
+- [x] `WP-42` Add `templates/`, `static/`, icons, and required runtime data to `app.spec` using portable paths.
+- [x] `WP-43` Prevent packaged mode from writing mutable user data inside the installation directory.
+- [x] `WP-44` Build the package from a clean environment.
+- [x] `WP-45` Run the executable from a working directory outside the repository.
 
 **Gate 4:** A clean installation and packaged smoke test pass without manually copying repository directories after the build.
 
@@ -137,11 +137,11 @@ git status --short
 
 **Goal:** Prevent the known failures from returning.
 
-- [ ] `WP-50` Add focused Flask tests for every route and failure path.
-- [ ] `WP-51` Add persistence tests for atomicity, recovery, and concurrent saves.
-- [ ] `WP-52` Add a packaged-app smoke test covering startup, page rendering, static assets, and template discovery.
-- [ ] `WP-53` Add a lightweight lint/type/style check only if it can be introduced without changing runtime behavior.
-- [ ] `WP-54` Add a repeatable verification command to the contributor documentation.
+- [x] `WP-50` Add focused Flask tests for every route and failure path.
+- [x] `WP-51` Add persistence tests for atomicity, recovery, and concurrent saves.
+- [x] `WP-52` Add a packaged-app smoke test covering startup, page rendering, static assets, and template discovery.
+- [x] `WP-53` Add a lightweight lint/type/style check only if it can be introduced without changing runtime behavior.
+- [x] `WP-54` Add a repeatable verification command to the contributor documentation.
 
 **Gate 5:** The verification suite is repeatable from a clean environment and detects each P0/P1 finding.
 
@@ -149,9 +149,9 @@ git status --short
 
 **Goal:** Remove avoidable third-party executable-asset risk.
 
-- [ ] `WP-60` Inventory all external JavaScript and CSS assets.
-- [ ] `WP-61` Prefer self-hosting pinned assets in `static/`, or record and enforce valid SRI hashes.
-- [ ] `WP-62` Verify that the application still renders charts and syntax highlighting when the network is unavailable.
+- [x] `WP-60` Inventory all external JavaScript and CSS assets.
+- [x] `WP-61` Prefer self-hosting pinned assets in `static/`, or record and enforce valid SRI hashes.
+- [x] `WP-62` Verify that the application still renders charts and syntax highlighting when the network is unavailable.
 
 **Gate 6:** Core typing functionality works without a live CDN dependency, or the remaining dependency and failure behavior are explicitly documented.
 
