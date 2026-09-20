@@ -13,7 +13,9 @@ Date: 2025-06-22
 
 # Standard library imports
 import argparse
+import csv
 import ipaddress
+import io
 import json
 import math
 import os
@@ -398,6 +400,22 @@ def save():
     if not valid:
         return jsonify({'error': err}), 400
 
+    optional_fields = {
+        'accuracy': (100.0, False),
+        'duration': (86400.0, False),
+        'completion': (100.0, False),
+        'characters': (1000000.0, True),
+    }
+    optional_values = {}
+    for field_name, (max_val, is_int) in optional_fields.items():
+        if field_name not in data:
+            continue
+        value = data[field_name]
+        valid, err = _validate_non_negative_number(value, field_name, max_val=max_val, is_int=is_int)
+        if not valid:
+            return jsonify({'error': err}), 400
+        optional_values[field_name] = int(value) if is_int else round(float(value), 2)
+
     # Normalize numeric values
     wpm = int(wpm_raw) if (isinstance(wpm_raw, int) or (isinstance(wpm_raw, float) and wpm_raw.is_integer())) else round(float(wpm_raw), 1)
     errors = int(errors_raw)
@@ -412,6 +430,7 @@ def save():
         'timestamp': timestamp,
         'display_timestamp': datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M'),
     }
+    entry.update(optional_values)
 
     with _SETTINGS_LOCK:
         settings = load_settings()
@@ -446,6 +465,33 @@ def clear_history():
         settings['history'] = []
         save_settings(settings)
     return jsonify({'status': 'cleared'})
+
+
+@app.route('/export_history', methods=['GET'])
+def export_history():
+    """Export saved history as JSON or CSV for the local user."""
+    if not is_loopback_request() or not is_trusted_origin():
+        return jsonify({'error': 'not authorized'}), 403
+
+    history = load_settings().get('history', [])
+    export_format = request.args.get('format', 'json').lower()
+    if export_format == 'json':
+        response = app.response_class(
+            json.dumps(history, indent=2, ensure_ascii=False),
+            mimetype='application/json',
+        )
+        response.headers['Content-Disposition'] = 'attachment; filename=typing-history.json'
+        return response
+    if export_format == 'csv':
+        fields = ['timestamp', 'display_timestamp', 'wpm', 'accuracy', 'duration', 'completion', 'characters', 'errors', 'backspaces']
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(history)
+        response = app.response_class(output.getvalue(), mimetype='text/csv')
+        response.headers['Content-Disposition'] = 'attachment; filename=typing-history.csv'
+        return response
+    return jsonify({'error': 'format must be json or csv'}), 400
 
 
 @app.route('/about')

@@ -29,6 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressBar = document.getElementById('progressBar'); // Progress indicator
   const summaryModal = document.getElementById('summaryModal'); // Results modal
   const themeToggle = document.getElementById('themeToggle'); // Theme toggle button
+  const statusMessage = document.getElementById('statusMessage');
+  const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  const clearDraftBtn = document.getElementById('clearDraftBtn');
+  const templateSearch = document.getElementById('templateSearch');
+  const templateRandom = document.getElementById('templateRandom');
+  const templateRecent = document.getElementById('templateRecent');
+  const templateFavorite = document.getElementById('templateFavorite');
 
   // State variables
   let code = '',              // The code to be typed
@@ -43,6 +50,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let spansCache = [];       // Cached list of spans for performance
   let lineStarts = [];       // Start indices of each visual line (for gutter and highlighting)
   let prismLoading = false;  // Whether Prism is being loaded
+  let statusTimeout = null;
+  const DRAFT_KEY = 'ctt.code-draft.v1';
+  const FAVORITES_KEY = 'ctt.template-favorites.v1';
+  const RECENT_KEY = 'ctt.template-recent.v1';
+  let templateEntries = [];
   
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -134,10 +146,47 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    restoreToggles();
-    wireTogglePersistence();
-  });
+  function showStatus(message, type = 'info', persist = false) {
+    if (!statusMessage) return;
+    if (statusTimeout) clearTimeout(statusTimeout);
+    statusMessage.textContent = message;
+    statusMessage.className = `status-message ${type}`;
+    if (!persist) {
+      statusTimeout = setTimeout(() => {
+        statusMessage.textContent = '';
+        statusMessage.className = 'status-message';
+      }, 5000);
+    }
+  }
+
+  // This outer DOMContentLoaded handler is already active. A nested listener
+  // would be registered after the event fired and never restore preferences.
+  restoreToggles();
+  wireTogglePersistence();
+
+  function restoreDraft() {
+    if (!codeInput) return;
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      codeInput.value = draft;
+      showStatus('Draft restored from this browser.', 'info');
+    }
+  }
+
+  if (codeInput) {
+    restoreDraft();
+    codeInput.addEventListener('input', () => {
+      localStorage.setItem(DRAFT_KEY, codeInput.value);
+    });
+  }
+  if (clearDraftBtn) {
+    clearDraftBtn.addEventListener('click', () => {
+      if (codeInput && codeInput.value && !window.confirm('Clear the current draft?')) return;
+      localStorage.removeItem(DRAFT_KEY);
+      if (codeInput) codeInput.value = '';
+      showStatus('Draft cleared.', 'success');
+    });
+  }
   }
 
   // Simple code templates by language/level (fallback if JSON not found)
@@ -374,13 +423,51 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!templateLevelSel) return;
     templateLevelSel.innerHTML = '';
     const levels = map[langId] || {};
-    Object.keys(levels).forEach(levelId => {
+    const query = (templateSearch?.value || '').trim().toLowerCase();
+    Object.keys(levels).filter(levelId => !query || langId.toLowerCase().includes(query) || levelId.toLowerCase().includes(query)).forEach(levelId => {
       const label = levelId[0].toUpperCase() + levelId.slice(1).replace('-', ' ');
       const opt = document.createElement('option');
       opt.value = levelId;
       opt.textContent = label;
       templateLevelSel.appendChild(opt);
     });
+  }
+
+  function rebuildTemplateEntries(map) {
+    templateEntries = [];
+    Object.entries(map).forEach(([language, levels]) => {
+      Object.entries(levels).forEach(([title, codeText]) => {
+        templateEntries.push({ language, title, code: codeText, key: `${language}/${title}` });
+      });
+    });
+  }
+
+  function favoriteKeys() {
+    try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); }
+    catch (_) { return new Set(); }
+  }
+
+  function rememberRecent(key) {
+    let recent = [];
+    try { recent = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (_) {}
+    recent = [key, ...recent.filter(item => item !== key)].slice(0, 10);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+  }
+
+  function recentKeys() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); }
+    catch (_) { return []; }
+  }
+
+  function updateFavoriteButton() {
+    if (!templateFavorite || !templateLangSel || !templateLevelSel) return;
+    const key = `${templateLangSel.value}/${templateLevelSel.value}`;
+    templateFavorite.textContent = favoriteKeys().has(key) ? '★' : '☆';
+  }
+
+  function filteredTemplateEntries() {
+    const query = (templateSearch?.value || '').trim().toLowerCase();
+    return templateEntries.filter(item => !query || `${item.language} ${item.title}`.toLowerCase().includes(query));
   }
 
   function convertApiTemplatesToMap(apiData) {
@@ -432,6 +519,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const map = convertApiTemplatesToMap(data);
         if (Object.keys(map).length) {
           TEMPLATE_MAP = map;
+          rebuildTemplateEntries(map);
           populateLanguageDropdown(map);
           const firstLang = Object.keys(map)[0];
           populateLevelDropdown(map, firstLang);
@@ -448,6 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const map = convertStaticJsonToMap(data);
         if (Object.keys(map).length) {
           TEMPLATE_MAP = map;
+          rebuildTemplateEntries(map);
           populateLanguageDropdown(map);
           const firstLang = Object.keys(map)[0];
           populateLevelDropdown(map, firstLang);
@@ -458,9 +547,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 3) Final fallback to built-in
     TEMPLATE_MAP = CODE_TEMPLATES;
+    rebuildTemplateEntries(TEMPLATE_MAP);
     TEMPLATE_LABELS = Object.fromEntries(Object.keys(TEMPLATE_MAP).map(id => [id, id.toUpperCase()]));
     populateLanguageDropdown(TEMPLATE_MAP);
     populateLevelDropdown(TEMPLATE_MAP, Object.keys(TEMPLATE_MAP)[0]);
+    showStatus('Using built-in templates. Filesystem templates are unavailable.', 'warning');
   }
 
   /**
@@ -571,6 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
     templateLangSel.addEventListener('change', () => {
       if (!TEMPLATE_MAP) return;
       populateLevelDropdown(TEMPLATE_MAP, templateLangSel.value);
+      updateFavoriteButton();
     });
   }
 
@@ -582,10 +674,57 @@ document.addEventListener('DOMContentLoaded', () => {
       const tpl = TEMPLATE_MAP[langId]?.[levelId];
       if (tpl) {
         codeInput.value = tpl;
+        localStorage.setItem(DRAFT_KEY, tpl);
+        rememberRecent(`${langId}/${levelId}`);
         codeInput.focus();
+        showStatus(`Loaded ${langId}/${levelId}.`, 'success');
       }
     });
   }
+
+  if (templateLevelSel) templateLevelSel.addEventListener('change', updateFavoriteButton);
+  if (templateSearch) templateSearch.addEventListener('input', () => {
+    populateLevelDropdown(TEMPLATE_MAP, templateLangSel?.value);
+  });
+  if (templateRandom) templateRandom.addEventListener('click', () => {
+    const candidates = filteredTemplateEntries();
+    if (!candidates.length) {
+      showStatus('No templates match the current search.', 'warning');
+      return;
+    }
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    templateLangSel.value = chosen.language;
+    populateLevelDropdown(TEMPLATE_MAP, chosen.language);
+    templateLevelSel.value = chosen.title;
+    codeInput.value = chosen.code;
+    localStorage.setItem(DRAFT_KEY, chosen.code);
+    rememberRecent(chosen.key);
+    updateFavoriteButton();
+    showStatus(`Random template loaded: ${chosen.title}.`, 'success');
+  });
+  if (templateRecent) templateRecent.addEventListener('click', () => {
+    const recent = recentKeys();
+    const chosen = recent.map(key => templateEntries.find(item => item.key === key)).find(Boolean);
+    if (!chosen) {
+      showStatus('No recent template yet.', 'warning');
+      return;
+    }
+    templateLangSel.value = chosen.language;
+    populateLevelDropdown(TEMPLATE_MAP, chosen.language);
+    templateLevelSel.value = chosen.title;
+    codeInput.value = chosen.code;
+    localStorage.setItem(DRAFT_KEY, chosen.code);
+    updateFavoriteButton();
+    showStatus(`Recent template loaded: ${chosen.title}.`, 'success');
+  });
+  if (templateFavorite) templateFavorite.addEventListener('click', () => {
+    const key = `${templateLangSel.value}/${templateLevelSel.value}`;
+    const keys = favoriteKeys();
+    if (keys.has(key)) keys.delete(key); else keys.add(key);
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify([...keys]));
+    updateFavoriteButton();
+    showStatus(keys.has(key) ? 'Template added to favorites.' : 'Template removed from favorites.', 'success');
+  });
 
   // Initialize dynamic templates
   loadTemplates();
@@ -778,7 +917,13 @@ document.addEventListener('DOMContentLoaded', () => {
     clearInterval(timerInterval);
     const elapsed = (Date.now()-startTime)/1000;
     const wpmVal = Math.round((index/5)/(elapsed/60));
+    const accuracy = Math.round((index / Math.max(1, index + errorCount)) * 10000) / 100;
+    const completion = Math.round((index / Math.max(1, spansCache.length)) * 10000) / 100;
     document.getElementById('modalWpm').textContent = wpmVal;
+    document.getElementById('modalAccuracy').textContent = `${accuracy}%`;
+    document.getElementById('modalDuration').textContent = `${elapsed.toFixed(1)} s`;
+    document.getElementById('modalCompletion').textContent = `${completion}%`;
+    updateResultInsights(wpmVal, accuracy);
     document.getElementById('modalErrors').textContent = errorCount;
     document.getElementById('modalBackspaces').textContent = backspaceCount;
     summaryModal.classList.add('show');
@@ -794,13 +939,23 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     
+    showStatus('Saving result…', 'info', true);
+
     // Save results without reloading the page
     fetch('/save', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ wpm: wpmVal, errors: errorCount, backspaces: backspaceCount }),
+      body: JSON.stringify({
+        wpm: wpmVal,
+        accuracy,
+        duration: Math.round(elapsed * 100) / 100,
+        completion,
+        characters: index,
+        errors: errorCount,
+        backspaces: backspaceCount,
+      }),
     })
       .then(response => {
         if (!response.ok) throw new Error(`HTTP error ${response.status}`);
@@ -820,6 +975,7 @@ document.addEventListener('DOMContentLoaded', () => {
           newRow.innerHTML = `
             <td>${data.timestamp || new Date().toISOString()}</td>
             <td>${wpmVal}</td>
+            <td>${accuracy}%</td>
             <td>${errorCount}</td>
             <td>${backspaceCount}</td>
           `;
@@ -836,9 +992,11 @@ document.addEventListener('DOMContentLoaded', () => {
             historyTable.removeChild(historyTable.lastChild);
           }
         }
+        showStatus('Result saved.', 'success');
       })
       .catch(err => {
         console.warn('Failed to save typing test record:', err);
+        showStatus('Result could not be saved. Your summary is still available.', 'error', true);
       });
   }
 
@@ -864,7 +1022,13 @@ document.addEventListener('DOMContentLoaded', () => {
     clearInterval(timerInterval);
     const elapsed = (Date.now() - startTime) / 1000;
     const wpmVal = elapsed > 0 ? Math.round((index / 5) / (elapsed / 60)) : 0;
+    const accuracy = Math.round((index / Math.max(1, index + errorCount)) * 10000) / 100;
+    const completion = Math.round((index / Math.max(1, spansCache.length)) * 10000) / 100;
     document.getElementById('modalWpm').textContent = wpmVal;
+    document.getElementById('modalAccuracy').textContent = `${accuracy}%`;
+    document.getElementById('modalDuration').textContent = `${elapsed.toFixed(1)} s`;
+    document.getElementById('modalCompletion').textContent = `${completion}%`;
+    updateResultInsights(wpmVal, accuracy);
     document.getElementById('modalErrors').textContent = errorCount;
     document.getElementById('modalBackspaces').textContent = backspaceCount;
     summaryModal.classList.add('show');
@@ -887,6 +1051,49 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('closeModal').addEventListener('click', closeModal);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && summaryModal.classList.contains('show')) closeModal();
+  });
+
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+      if (!window.confirm('Clear all saved typing history? This cannot be undone.')) return;
+      clearHistoryBtn.disabled = true;
+      try {
+        const response = await fetch('/clear', { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const historyTable = document.querySelector('#historyTable tbody');
+        if (historyTable) historyTable.innerHTML = '<tr><td colspan="5">No history yet — complete a session to start tracking progress.</td></tr>';
+        if (chart) {
+          chart.data.labels = [];
+          chart.data.datasets[0].data = [];
+          chart.update();
+        }
+        showStatus('History cleared.', 'success');
+      } catch (error) {
+        console.error('Could not clear history:', error);
+        showStatus('History could not be cleared.', 'error', true);
+      } finally {
+        clearHistoryBtn.disabled = false;
+      }
+    });
+  }
+
+  function updateResultInsights(wpmVal, accuracy) {
+    const previous = Array.isArray(historyData) && historyData.length ? historyData[0] : null;
+    const comparison = document.getElementById('modalComparison');
+    const best = document.getElementById('modalBest');
+    if (comparison) {
+      if (!previous || typeof previous.wpm !== 'number') comparison.textContent = 'First recorded session';
+      else if (wpmVal > previous.wpm) comparison.textContent = `+${wpmVal - previous.wpm} WPM vs previous`;
+      else if (wpmVal < previous.wpm) comparison.textContent = `${wpmVal - previous.wpm} WPM vs previous`;
+      else comparison.textContent = 'Same WPM as previous';
+    }
+    if (best) {
+      const priorBest = previous ? Math.max(...historyData.map(item => Number(item.wpm) || 0)) : 0;
+      best.textContent = wpmVal >= priorBest ? 'New WPM best' : `${priorBest} WPM`;
+    }
+  }
 
   // Chart initialization only (table is now rendered by Flask template)
   (function(){

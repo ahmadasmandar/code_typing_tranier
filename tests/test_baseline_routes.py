@@ -187,6 +187,41 @@ class RouteContractTests(unittest.TestCase):
         self.assertEqual(response.get_json(), {'status': 'cleared'})
         self.assertEqual(len(app.load_settings().get('history', [])), 0)
 
+    def test_save_optional_learning_metrics(self):
+        """Optional accuracy, duration, completion, and character fields persist."""
+        response = self.client.post('/save', json={
+            'wpm': 72,
+            'accuracy': 96.5,
+            'duration': 12.34,
+            'completion': 100,
+            'characters': 240,
+            'errors': 3,
+            'backspaces': 2,
+        })
+        self.assertEqual(response.status_code, 200)
+        entry = app.load_settings()['history'][0]
+        self.assertEqual(entry['accuracy'], 96.5)
+        self.assertEqual(entry['duration'], 12.34)
+        self.assertEqual(entry['completion'], 100.0)
+        self.assertEqual(entry['characters'], 240)
+
+    def test_export_history_json_and_csv(self):
+        """History export returns supported JSON and CSV formats."""
+        self.client.post('/save', json={'wpm': 70, 'errors': 1, 'backspaces': 0})
+
+        json_response = self.client.get('/export_history?format=json')
+        self.assertEqual(json_response.status_code, 200)
+        self.assertEqual(json_response.mimetype, 'application/json')
+        self.assertIn('attachment; filename=typing-history.json', json_response.headers['Content-Disposition'])
+
+        csv_response = self.client.get('/export_history?format=csv')
+        self.assertEqual(csv_response.status_code, 200)
+        self.assertEqual(csv_response.mimetype, 'text/csv')
+        self.assertIn('wpm', csv_response.get_data(as_text=True))
+
+        invalid_response = self.client.get('/export_history?format=xml')
+        self.assertEqual(invalid_response.status_code, 400)
+
     # --- /upload_image Route Tests ---
 
     def test_upload_image_remote_unauthorized(self):
@@ -249,6 +284,11 @@ class RouteContractTests(unittest.TestCase):
 
         settings = app.load_settings()
         self.assertEqual(settings.get('profile_image'), 'profile.png')
+
+        image_response = self.client.get('/static/uploads/profile.png')
+        self.assertEqual(image_response.status_code, 200)
+        self.assertEqual(image_response.data, b'PNG_RAW_IMAGE_DATA')
+        image_response.close()
 
     # --- /api/upload_template Route Tests ---
 

@@ -28,6 +28,10 @@
         <label for="templateLevel" class="template-label">Level</label>
         <select id="templateLevel" class="template-select" aria-label="Template level"></select>
         <button id="templateApply" class="template-btn template-apply" title="Insert selected template">Insert</button>
+        <input id="templateSearch" class="template-search" type="search" placeholder="Search templates" aria-label="Search templates">
+        <button id="templateRandom" class="template-btn" type="button" title="Choose a random template">Random</button>
+        <button id="templateRecent" class="template-btn" type="button" title="Load the most recently used template">Recent</button>
+        <button id="templateFavorite" class="template-btn" type="button" title="Toggle favorite template">☆</button>
       </div>
 
       <div class="btn-row">
@@ -40,10 +44,14 @@
           <input type="checkbox" id="toggleHighlightLine"> Line
         </label>
       </div>
+      <div id="statusMessage" class="status-message" role="status" aria-live="polite" aria-atomic="true"></div>
 
       <!-- Single input area that transforms -->
       <div class="input-container">
-        <textarea id="codeInput" placeholder="Enter your code here to practice..." rows="12"></textarea>
+        <div class="draft-row">
+          <textarea id="codeInput" placeholder="Enter your code here to practice..." rows="12"></textarea>
+          <button id="clearDraftBtn" class="secondary-btn" type="button">Clear draft</button>
+        </div>
         <div id="typingTest" class="hidden">
           <div id="codeContainer" class="code-container">
             <div id="lineGutter" class="line-gutter hidden" aria-hidden="true"></div>
@@ -68,9 +76,14 @@
       
       <section class="history-section">
         <h2>Previous</h2>
+        <div class="history-actions">
+          <button id="clearHistoryBtn" class="secondary-btn" type="button">Clear history</button>
+          <a class="secondary-btn" href="/export_history?format=json" download>Export JSON</a>
+          <a class="secondary-btn" href="/export_history?format=csv" download>Export CSV</a>
+        </div>
         <table id="historyTable" class="history-table">
           <thead>
-            <tr><th>Date</th><th>WPM</th><th>Errors</th><th>Backspaces</th></tr>
+            <tr><th>Date</th><th>WPM</th><th>Accuracy</th><th>Errors</th><th>Backspaces</th></tr>
           </thead>
           <tbody>
             {% if history %}
@@ -78,12 +91,13 @@
               <tr>
                 <td>{% if item.display_timestamp %}{{ item.display_timestamp }}{% elif item.timestamp %}{{ item.timestamp }}{% else %}{% endif %}</td>
                 <td>{{ item.wpm }}</td>
+                <td>{% if item.accuracy is defined %}{{ item.accuracy }}%{% else %}—{% endif %}</td>
                 <td>{{ item.errors }}</td>
                 <td>{{ item.backspaces }}</td>
               </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="4">No history yet</td></tr>
+              <tr><td colspan="5">No history yet — complete a session to start tracking progress.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -96,11 +110,16 @@
     <canvas id="wpmChart"></canvas>
   </div>
 
-  <div id="summaryModal" class="modal">
+  <div id="summaryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
     <div class="modal-content">
-      <h2>Result</h2>
+      <h2 id="summaryTitle">Result</h2>
       <table class="summary-table">
         <tr><th>WPM</th><td><span id="modalWpm"></span></td></tr>
+        <tr><th>Accuracy</th><td><span id="modalAccuracy"></span></td></tr>
+        <tr><th>Duration</th><td><span id="modalDuration"></span></td></tr>
+        <tr><th>Completion</th><td><span id="modalCompletion"></span></td></tr>
+        <tr><th>Progress</th><td><span id="modalComparison"></span></td></tr>
+        <tr><th>Personal best</th><td><span id="modalBest"></span></td></tr>
         <tr><th>Errors</th><td><span id="modalErrors"></span></td></tr>
         <tr><th>Backspaces</th><td><span id="modalBackspaces"></span></td></tr>
       </table>

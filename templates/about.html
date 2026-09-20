@@ -178,7 +178,7 @@
       <div class="profile-image-area">
         <div class="profile-image-container">
           {% if profile_image %}
-            <img src="{{ url_for('static', filename='uploads/' + profile_image) }}" alt="Ahmad Asmandar">
+            <img src="{{ url_for('uploaded_file', filename=profile_image) }}" alt="Ahmad Asmandar">
           {% else %}
             <div class="placeholder-image"><i class="fas fa-user-circle"></i></div>
           {% endif %}
