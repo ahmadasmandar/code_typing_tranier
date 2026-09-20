@@ -18,12 +18,22 @@ Thank you for considering contributing to the Code Typing Trainer project! This 
    pip install -r requirements.txt
    ```
 
-2. Run the application:
+2. Run test verification:
+   ```
+   python -m unittest discover -v -s tests
+   ```
+
+3. Run the application:
    ```
    python app.py
    ```
 
-3. The application will be available at http://127.0.0.1:5000
+4. Build the packaged application (optional):
+   ```
+   pyinstaller app.spec --noconfirm --clean
+   ```
+
+5. The application will be available at http://127.0.0.1:5000
 
 ## Code Style Guidelines
 

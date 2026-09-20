@@ -11,9 +11,9 @@ Version: 1.0.0
 Date: 2025-06-22
 """
 
-import argparse
-
 # Standard library imports
+import argparse
+import ipaddress
 import json
 import math
 import os
@@ -27,6 +27,7 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Third-party imports
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
@@ -47,8 +48,18 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-# Initialize Flask application
-app = Flask(__name__)
+# Base directory for application code (supports PyInstaller frozen bundles)
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Initialize Flask application with explicit templates and static directories
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'templates'),
+    static_folder=os.path.join(BASE_DIR, 'static'),
+)
 
 # Generate a secure random secret key for session management
 app.secret_key = secrets.token_hex(16)
@@ -59,11 +70,66 @@ _SETTINGS_LOCK = threading.RLock()
 # Allowed image file extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
-# Base directory for application code
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Allowed code template extensions
+ALLOWED_TEMPLATE_EXTENSIONS = {
+    '.c', '.h', '.cpp', '.hpp', '.cc', '.py', '.vhd', '.vhdl',
+    '.js', '.ts', '.java', '.go', '.html', '.css', '.txt', '.json', '.md'
+}
+
+# Limit max upload payload size to 10 MB
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+
 CODE_TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 # Optional STM32 HAL project-style source directory to scan as its own language
 CORE_SRC_DIR = os.path.join(BASE_DIR, 'Core', 'Src')
+
+
+def is_loopback_address(addr: str) -> bool:
+    """
+    Check whether an IP address string or hostname is a valid loopback address.
+    Supports IPv4 (127.0.0.0/8), IPv6 (::1, ::ffff:127.0.0.1), and localhost.
+    """
+    if not addr:
+        return False
+    if '%' in addr:
+        addr = addr.split('%')[0]
+    clean_addr = addr.strip().lower()
+    if clean_addr in ('127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1'):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean_addr)
+        return ip.is_loopback
+    except ValueError:
+        return False
+
+
+def is_loopback_request() -> bool:
+    """Check if the current Flask request originated from a loopback address."""
+    remote = request.remote_addr
+    return is_loopback_address(remote)
+
+
+def is_trusted_origin() -> bool:
+    """
+    Verify that state-changing requests originate from a trusted origin / referer.
+    If Origin or Referer header is present, its hostname must be a loopback address
+    or match the Host header.
+    """
+    origin = request.headers.get('Origin')
+    if origin:
+        parsed = urlparse(origin)
+        hostname = (parsed.hostname or '').strip().lower()
+        if not (is_loopback_address(hostname) or hostname == (request.host.split(':')[0]).strip().lower()):
+            return False
+
+    referer = request.headers.get('Referer')
+    if referer:
+        parsed = urlparse(referer)
+        hostname = (parsed.hostname or '').strip().lower()
+        if not (is_loopback_address(hostname) or hostname == (request.host.split(':')[0]).strip().lower()):
+            return False
+
+    return True
 
 
 def get_data_dir() -> str:
@@ -303,13 +369,16 @@ def save():
     """
     API endpoint to save typing test results.
 
-    Receives typing test results via JSON POST request, validates payload
-    structure and numeric ranges, creates a new history entry with current timestamp,
+    Receives typing test results via JSON POST request, validates origin,
+    payload structure, and numeric ranges, creates a new history entry with current timestamp,
     and saves it to the settings file. Limits history to the 20 most recent entries.
 
     Returns:
-        JSON response: Confirmation of save with formatted timestamp (200) or error (400)
+        JSON response: Confirmation of save with formatted timestamp (200) or error (400/403)
     """
+    if not is_trusted_origin():
+        return jsonify({'error': 'untrusted request origin'}), 403
+
     data = request.get_json(silent=True)
     if data is None or not isinstance(data, dict):
         return jsonify({'error': 'invalid JSON payload'}), 400
@@ -364,11 +433,14 @@ def clear_history():
     """
     API endpoint to clear typing history.
 
-    Clears all typing history entries from the settings file.
+    Clears all typing history entries from the settings file for authorized local users.
 
     Returns:
         JSON response: Confirmation of history clearing
     """
+    if not is_loopback_request() or not is_trusted_origin():
+        return jsonify({'error': 'not authorized'}), 403
+
     with _SETTINGS_LOCK:
         settings = load_settings()
         settings['history'] = []
@@ -382,15 +454,14 @@ def about():
     Route handler for the About page.
 
     Loads profile image information from settings and determines if the user
-    is an admin (based on localhost access) for conditional display of admin features.
+    is an admin (based on localhost/loopback access) for conditional display of admin features.
 
     Returns:
         rendered template: The about.html page with profile image and admin status
     """
     settings = load_settings()
     profile_image = settings.get('profile_image', None)
-    # Simple admin check - you can implement a more secure method if needed
-    is_admin = request.remote_addr == '127.0.0.1'
+    is_admin = is_loopback_request()
     return render_template('about.html', profile_image=profile_image, is_admin=is_admin)
 
 
@@ -399,14 +470,13 @@ def upload_image():
     """
     Route handler for profile image uploads.
 
-    Allows admin users (localhost only) to upload a profile image for the About page.
-    Validates the uploaded file, saves it with a secure filename, and updates settings.
+    Allows admin users (localhost/loopback only) to upload a profile image for the About page.
+    Validates origin, file presence, allowed extensions, saves with secure filename, and updates settings.
 
     Returns:
         redirect: Redirects back to the About page after processing
     """
-    # Simple admin check - localhost only
-    if request.remote_addr != '127.0.0.1':
+    if not is_loopback_request() or not is_trusted_origin():
         return redirect(url_for('about'))
 
     if 'file' not in request.files:
@@ -559,8 +629,7 @@ def api_upload_template():
       language: name of subfolder to store under (e.g., "c", "python").
       file: the uploaded code file (e.g., main.c, main.py).
     """
-    # Only allow local admin uploads similar to image upload policy
-    if request.remote_addr != '127.0.0.1':
+    if not is_loopback_request() or not is_trusted_origin():
         return jsonify({"error": "not authorized"}), 403
 
     language = request.form.get('language', '').strip()
@@ -571,6 +640,11 @@ def api_upload_template():
     # Strictly validate language folder name: allow only letters, digits, dash and underscore (1-30 chars)
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,30}", language):
         return jsonify({"error": "invalid language name"}), 400
+
+    ext = os.path.splitext(upfile.filename)[1].lower()
+    if ext not in ALLOWED_TEMPLATE_EXTENSIONS:
+        return jsonify({"error": f"unsupported file extension '{ext}'"}), 400
+
     safe_lang = secure_filename(language).lower()
     safe_name = secure_filename(upfile.filename)
     if not safe_name:
@@ -720,9 +794,18 @@ if __name__ == '__main__':
         default=None,
         help='Choose which browser to launch (chromium, firefox, or edge). If omitted, tries chromium, then firefox, then edge.',
     )
+    parser.add_argument('--host', default=None, help='Host interface to bind server (default: 127.0.0.1 or CTT_HOST)')
+    parser.add_argument('--port', type=int, default=None, help='Port to bind server (default: 5000 or CTT_PORT)')
+    parser.add_argument('--debug', action='store_true', default=None, help='Enable debug mode (default: False or CTT_DEBUG)')
+    parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser window')
+
     # Support commands that inject a standalone '--' separator (e.g., some runners)
     forwarded = [a for a in sys.argv[1:] if a != '--']
     args = parser.parse_args(forwarded)
+
+    host = args.host or os.environ.get('CTT_HOST', '127.0.0.1')
+    port = args.port or int(os.environ.get('CTT_PORT', 5000))
+    debug = args.debug if args.debug is not None else (os.environ.get('CTT_DEBUG', 'false').lower() in ('true', '1', 'yes'))
 
     # Determine browser preference
     chosen = args.browser
@@ -737,13 +820,13 @@ if __name__ == '__main__':
         else:
             chosen = None  # use default
 
-    # Launch browser only after server is reachable to avoid connection errors
-    def _wait_then_open():
-        url = 'http://127.0.0.1:5000'
-        wait_for_server(url, timeout_seconds=20.0, interval=0.3)
-        open_browser_and_watch(chosen if chosen else '', url)
+    if not args.no_browser:
+        def _wait_then_open():
+            url = f'http://{host}:{port}'
+            wait_for_server(url, timeout_seconds=20.0, interval=0.3)
+            open_browser_and_watch(chosen if chosen else '', url)
 
-    threading.Thread(target=_wait_then_open, daemon=True).start()
+        threading.Thread(target=_wait_then_open, daemon=True).start()
 
-    # Start the Flask development server without reloader to avoid multiple windows
-    app.run(debug=True, use_reloader=False)
+    # Start the Flask server with production-safe defaults (debug disabled by default)
+    app.run(host=host, port=port, debug=debug, use_reloader=False)

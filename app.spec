@@ -5,7 +5,12 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('templates', 'templates'),
+        ('static', 'static'),
+        ('fav.ico', '.'),
+        ('coding.png', '.'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

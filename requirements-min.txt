@@ -1,3 +1,1 @@
-Flask==3.0.3
-# Optional for production serving (instead of Flask's dev server)
-# waitress==2.1.2
+Flask>=3.1.1

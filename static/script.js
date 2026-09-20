@@ -47,6 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Audio context for error sound
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
+  // Subresource integrity configuration fallback
+  const PRISM_SRI = window.PRISM_SRI || {};
+
   // --- Theme toggle (light/dark) ---
   const THEME_KEY = 'ctt.theme';
   function applyTheme(theme) {
@@ -268,6 +271,9 @@ document.addEventListener('DOMContentLoaded', () => {
     core.crossOrigin = 'anonymous';
     core.referrerPolicy = 'no-referrer';
     if (PRISM_SRI.core) core.integrity = PRISM_SRI.core;
+    core.onerror = () => {
+      prismLoading = false;
+    };
     core.onload = () => {
       const langs = ['clike', 'c', 'python', 'markup'];
       let loaded = 0;
@@ -277,6 +283,10 @@ document.addEventListener('DOMContentLoaded', () => {
         s.crossOrigin = 'anonymous';
         s.referrerPolicy = 'no-referrer';
         if (PRISM_SRI[l]) s.integrity = PRISM_SRI[l];
+        s.onerror = () => {
+          loaded++;
+          if (loaded === langs.length) { callback && callback(); }
+        };
         s.onload = () => { loaded++; if (loaded === langs.length) { callback && callback(); } };
         document.head.appendChild(s);
       });
@@ -773,21 +783,42 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalBackspaces').textContent = backspaceCount;
     summaryModal.classList.add('show');
     
-    // Update chart
-    chart.data.labels.push(new Date().toLocaleDateString());
-    chart.data.datasets[0].data.push(wpmVal);
-    chart.update();
+    // Update chart safely if available
+    if (chart && chart.data && Array.isArray(chart.data.labels)) {
+      try {
+        chart.data.labels.push(new Date().toLocaleDateString());
+        chart.data.datasets[0].data.push(wpmVal);
+        chart.update();
+      } catch (e) {
+        console.warn('Could not update chart:', e);
+      }
+    }
     
     // Save results without reloading the page
-    fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wpm:wpmVal,errors:errorCount,backspaces:backspaceCount})})
-      .then(response => response.json())
+    fetch('/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ wpm: wpmVal, errors: errorCount, backspaces: backspaceCount }),
+    })
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        return response.json();
+      })
       .then(data => {
         // Update the history table with the new entry
         const historyTable = document.querySelector('#historyTable tbody');
         if (historyTable) {
+          // Remove "No history yet" placeholder row if present
+          const placeholder = historyTable.querySelector('td[colspan]');
+          if (placeholder && placeholder.parentElement) {
+            placeholder.parentElement.remove();
+          }
+
           const newRow = document.createElement('tr');
           newRow.innerHTML = `
-            <td>${data.timestamp}</td>
+            <td>${data.timestamp || new Date().toISOString()}</td>
             <td>${wpmVal}</td>
             <td>${errorCount}</td>
             <td>${backspaceCount}</td>
@@ -805,6 +836,9 @@ document.addEventListener('DOMContentLoaded', () => {
             historyTable.removeChild(historyTable.lastChild);
           }
         }
+      })
+      .catch(err => {
+        console.warn('Failed to save typing test record:', err);
       });
   }
 
@@ -856,10 +890,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Chart initialization only (table is now rendered by Flask template)
   (function(){
-    const sorted = historyData.slice().sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+    const ctx = document.getElementById('wpmChart');
+    if (!ctx || typeof Chart === 'undefined') return;
+    const sorted = (historyData || []).slice().sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
     const labels = sorted.map(i=>new Date(i.timestamp).toLocaleDateString());
     const data = sorted.map(i=>i.wpm);
-    const ctx=document.getElementById('wpmChart');
     chart=new Chart(ctx,{
       type:'line',
       data:{
